@@ -68,3 +68,19 @@ Probe 4 MiB, decide, write, verify.
 ### [ ] CI hook
 Run `test.bat` from a scheduled task or post-commit hook.
 **Pass:** a failing build produces a non-zero exit without human intervention.
+
+### [ ] M10 — raw record store, no partition, no filesystem
+Append-only records written straight to the bare disk: a superblock commit count, a
+per-record FNV-1a, and tolerance for a record written but never committed. No partition
+table, no filesystem, nothing between the request and the device. Full format, layouts and
+pass condition in `M10-RAWSTORE.md`.
+
+**Pass:** all eleven checks present in the serial log and agreed by `verify.py`, including a
+negative test in which the host corrupts one byte inside a committed record and the guest
+must report it rather than pass silently.
+
+**Ready now:** the reference implementation and verifier,
+`py tools\rawstore_check.py --selftest` — it builds an image to spec, verifies it, corrupts
+it and proves it fails, then proves an orphan record is ignored.
+
+**Blocked by:** nothing. Follows M9.
