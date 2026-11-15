@@ -25,6 +25,7 @@ extern void isr_irq0(void);
 extern void exception_panic(u32 vector, u32 error, u32 eip);
 extern void timer_tick(void);
 extern int virtio_test(void);
+extern int store_selftest(void);
 
 typedef struct {
     u32 count;      /* number of E820 entries            */
@@ -558,6 +559,7 @@ void kmain(u32 boot_info_addr)
     }
 
     virtio_test();               /* read sector 0 and hash it */
+    store_selftest();            /* M10: records on the bare disk, no filesystem */
 
     __asm__ __volatile__("sti");
 

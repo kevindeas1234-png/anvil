@@ -152,6 +152,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--orphan", metavar="IMG")
     parser.add_argument("--record", type=int, default=0)
     parser.add_argument("--records", type=int, default=64)
+    parser.add_argument("--region-fnv", metavar="IMG",
+                        help="print the FNV over the superblock and committed records")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
 
@@ -183,6 +185,13 @@ def main(argv: list[str]) -> int:
         print("\nSELFTEST PASS - the verifier accepts good images and rejects bad ones")
         return 0
 
+    if args.region_fnv:
+        with open(args.region_fnv, "rb") as handle:
+            image = handle.read()
+        count, _ok = read_superblock(image)
+        end = (DATA_START + count * REC_SECTORS) * SECTOR
+        print(f"store: region fnv=0x{fnv1a(image[:end]):08x}")
+        return 0
     if args.build:
         return build(args.build, args.records)
     if args.verify:

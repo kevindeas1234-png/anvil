@@ -7,7 +7,7 @@
 [BITS 16]
 [ORG 0x7C00]
 
-KERNEL_SECTORS equ 32              ; 16 KB of kernel space
+KERNEL_SECTORS equ 64              ; 32 KB of kernel space
 
 start:
     cli

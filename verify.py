@@ -63,6 +63,32 @@ M9_MARKERS = (
     "virtio: sector2048 fnv=",
 )
 
+M10_MARKERS = (
+    "store: formatted ",
+    "store: appended 64, count=64",
+    "store: verify ok 64/64",
+    "store: orphan ignored",
+    "store: verify FAIL rec 32",
+    "store: out of range 64",
+    "store: full 4092",
+    "store: replay identical",
+)
+
+# The expected hashes come from the reference implementation, not from a second
+# copy of the kernel's assumptions. If the two disagree, that is the finding.
+try:
+    import rawstore_check as storeref
+except ImportError:
+    # it lives in tools\; add that to the path rather than duplicating the
+    # format logic here
+    _tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    if _tools not in sys.path:
+        sys.path.insert(0, _tools)
+    try:
+        import rawstore_check as storeref
+    except ImportError:
+        storeref = None
+
 LBA_MARKER = 2048
 
 TICK_LINE = re.compile(r"^\s*tick\s+(\d+)\s*$", re.MULTILINE)
@@ -101,6 +127,25 @@ STAGE_MARKERS = (
 )
 
 
+def store_expectations(count: int = 64) -> dict | None:
+    """The hashes a correct guest must print, computed independently here."""
+    if storeref is None:
+        return None
+    sectors = storeref.DATA_START + count * storeref.REC_SECTORS
+    image = bytearray(sectors * storeref.SECTOR)
+    image[0:storeref.SECTOR] = storeref.superblock(count)
+    for index in range(count):
+        start = storeref.lba_of(index) * storeref.SECTOR
+        image[start:start + storeref.REC_SIZE] = storeref.record(
+            index, index + 1, storeref.payload_for(index, storeref.MAX_PAYLOAD))
+    return {
+        "superblock": fnv1a32(bytes(image[0:0x18])),
+        "rec0": fnv1a32(storeref.payload_for(0, storeref.MAX_PAYLOAD)),
+        "rec63": fnv1a32(storeref.payload_for(count - 1, storeref.MAX_PAYLOAD)),
+        "region": fnv1a32(bytes(image)),
+    }
+
+
 def newest_log(base: str) -> str | None:
     logs = glob.glob(os.path.join(base, "logs", "*.log"))
     return max(logs, key=os.path.getmtime) if logs else None
@@ -124,7 +169,9 @@ def check(path: str) -> bool:
     if reached:
         print(f"  last stage marker: {reached[-1]!r}")
 
-    if "virtio: sector2048 fnv=" in text:
+    if "store: replay identical" in text:
+        milestone = 10
+    elif "virtio: sector2048 fnv=" in text:
         milestone = 9
     elif "virtio: writeback fnv=" in text:
         milestone = 8
@@ -174,6 +221,40 @@ def check(path: str) -> bool:
             require(("heap: alloc/free ok",))
         check_ticks()
         require(M3_MARKERS)
+
+        if "store: formatted" in text:
+            # M10: records on the bare disk, no partition table, no filesystem.
+            # Every hash is compared with the reference implementation in
+            # tools/rawstore_check.py, not with a second copy of the kernel's
+            # own assumptions.
+            require(M10_MARKERS)
+            if text.count("store: verify ok 64/64") < 2:
+                print("  [FAIL] verification must pass both before and after the "
+                      "corruption test")
+                ok = False
+            expected = store_expectations()
+            for label, pattern in (
+                    ("rec0", r"store: rec0 fnv=0x([0-9a-fA-F]{8})"),
+                    ("rec63", r"store: rec63 fnv=0x([0-9a-fA-F]{8})"),
+                    ("superblock", r"store: superblock fnv=0x([0-9a-fA-F]{8})"),
+                    ("region", r"store: region fnv=0x([0-9a-fA-F]{8})")):
+                match = re.search(pattern, text)
+                if not match:
+                    print(f"  [FAIL] no {label} hash in the log")
+                    ok = False
+                    continue
+                got = int(match.group(1), 16)
+                if expected is None:
+                    # Without the reference there is no independent check at all,
+                    # so this must fail rather than quietly pass.
+                    print(f"  [FAIL] {label}: reference implementation missing, "
+                          f"so the hash cannot be verified")
+                    ok = False
+                    continue
+                same = got == expected[label]
+                print(f"  [{'PASS' if same else 'FAIL'}] {label} 0x{got:08x} "
+                      f"(host expects 0x{expected[label]:08x})")
+                ok = ok and same
 
         if milestone >= 7:
             require(M7_MARKERS)

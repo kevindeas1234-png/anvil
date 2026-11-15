@@ -6,6 +6,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **M10: a raw record store with no partition table and no filesystem.** Fixed-size records
+  at `LBA 16 + i*4`, a superblock at `LBA 0` holding the committed count, per-record FNV-1a,
+  and a commit ordering that makes an uncommitted record harmless. `verify.py` compares four
+  hashes against `tools/rawstore_check.py`, an independent implementation written first.
 - `CREDITS.md` — contributors, and a precise statement of what the record does and does not
   prove.
 - `DRIVER-LIST.md` — why one machine's driver inventory is a fingerprint, not a plan, and
@@ -16,8 +20,14 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Personal data removed from the documentation: IP addresses, MAC addresses, WiFi name,
   hostname, account paths and device names replaced with placeholders. Build specifics
   (versions, ports, file names) are kept, because they are what make this reproducible.
+- Kernel load area doubled: `KERNEL_SECTORS` in `stage1.asm` and `KERNEL_LIMIT` in
+  `mkimage.py` moved together from 32 to 64 sectors, because the store pushed the kernel
+  past 16 KB. The two constants must always change as a pair.
 
 ### Fixed
+- `store_format()` left the reserved sectors holding whatever was on the disk beforehand, so
+  the region hash depended on the disk's history rather than on the formatter. Caught by the
+  host disagreeing with the guest; fixed by zeroing the reserved area.
 - `run_vm.bat` used `timeout /t`, which refuses to run when stdin is redirected. A
   scheduled or automated run therefore skipped the wait, killed the VM instantly and
   logged nothing — a confusing `FAIL` with no cause. Replaced with a console-independent

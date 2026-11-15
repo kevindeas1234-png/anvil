@@ -43,8 +43,9 @@ The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot
 | virtio-blk read | FNV-1a of sector 0 matches the host's hash of the image |
 | virtio-blk write + read-back | pattern written to sector 1, buffer cleared, read back, hash matches |
 | Arbitrary-LBA read | LBA 2048 hashed in the guest, compared with the host |
+| Raw record store | 64 records on a bare disk with no partition table and no filesystem; the whole committed region hashed in the guest and matched against an independent host implementation |
 
-The point of the last three is that **the guest's claim and the host's measurement are
+The point of the last four is that **the guest's claim and the host's measurement are
 compared**. A kernel that prints "disk OK" proves nothing; one whose hash has to match a
 value computed outside the VM is harder to fake and much easier to debug.
 
@@ -111,8 +112,9 @@ time:
 ## Repository layout
 
 ```
-kernel/     stage1.asm entry.asm isr.asm kernel.c virtio.c linker.ld
-tools/      mkimage.py mkdisk.py verify.py history.py   (build + verification)
+kernel/     stage1.asm entry.asm isr.asm kernel.c virtio.c store.c linker.ld
+tools/      mkimage.py mkdisk.py verify.py history.py rawstore_check.py
+M10-RAWSTORE.md          the on-disk format, commit protocol and pass condition
 build.bat   run_vm.bat   test.bat   run_vm_debug.bat
 HANDOVER.md BACKLOG.md   notes on state and what comes next
 DRIVER-LIST.md           why there are no drivers, and how to compile your own list

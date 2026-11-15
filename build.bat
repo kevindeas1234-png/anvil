@@ -55,11 +55,15 @@ if errorlevel 1 goto fail
 
 echo [AOS] 4b/6 compiling virtio.c
 "%ZIG%" cc -target x86-freestanding -ffreestanding -nostdlib -fno-builtin -fno-pic -fno-stack-protector -mgeneral-regs-only -mno-mmx -mno-sse -mno-sse2 -mno-avx -msoft-float -O2 -c "%OSROOT%kernel\virtio.c" -o "%OSROOT%build\virtio.o"
+echo [AOS] 4c/6 compiling store.c
+"%ZIG%" cc -target x86-freestanding -ffreestanding -nostdlib -fno-builtin -fno-pic -fno-stack-protector -mgeneral-regs-only -mno-mmx -mno-sse -mno-sse2 -mno-avx -msoft-float -O2 -c "%OSROOT%kernel\store.c" -o "%OSROOT%build\store.o"
+if errorlevel 1 goto failed
+echo [AOS] compile store exit=0
 echo [AOS] compile virtio exit=%errorlevel%
 if errorlevel 1 goto fail
 
 echo [AOS] 5/6 linking ELF at 0x10000
-"%ZIG%" cc -target x86-freestanding -nostdlib -Wl,-T,"%OSROOT%kernel\linker.ld" -o "%OSROOT%build\kernel.elf" "%OSROOT%build\entry.o" "%OSROOT%build\isr.o" "%OSROOT%build\kernel.o" "%OSROOT%build\virtio.o"
+"%ZIG%" cc -target x86-freestanding -nostdlib -Wl,-T,"%OSROOT%kernel\linker.ld" -o "%OSROOT%build\kernel.elf" "%OSROOT%build\entry.o" "%OSROOT%build\isr.o" "%OSROOT%build\kernel.o" "%OSROOT%build\virtio.o" "%OSROOT%build\store.o"
 echo [AOS] link exit=%errorlevel%
 if errorlevel 1 goto fail
 

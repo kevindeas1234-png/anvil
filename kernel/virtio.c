@@ -100,6 +100,12 @@ struct vring_state {
     u16 last_used;
 };
 
+/* The boot-time test leaves the device usable; these keep that state so other
+ * modules can issue their own requests instead of re-claiming the device. */
+static struct vring_state g_vring;
+static u32 g_capacity_sectors;
+static int g_ready;
+
 /* --- port I/O ---------------------------------------------------------- */
 static inline void outl(u16 port, u32 value)
 {
@@ -301,6 +307,8 @@ found:
         print(" sectors (hi=");
         put_dec(cap_hi);
         print(")\n");
+
+        g_capacity_sectors = cap_lo;
     }
 
     /* reset, acknowledge, then claim the device */
@@ -355,20 +363,21 @@ found:
     }
 
     {
-        struct vring_state st;
+        struct vring_state *st = &g_vring;
         u8 *read_buf = (u8 *)DATA_PHYS;
         u32 i;
         int same = 1;
 
-        st.io_base = io_base;
-        st.desc_base = desc_base;
-        st.avail_base = avail_base;
-        st.used_base = used_base;
-        st.qsize = qsize;
-        st.last_used = 0;
+        st->io_base = io_base;
+        st->desc_base = desc_base;
+        st->avail_base = avail_base;
+        st->used_base = used_base;
+        st->qsize = qsize;
+        st->last_used = 0;
+        g_ready = 1;
 
         /* 1. read sector 0 */
-        if (blk_request(&st, VIRTIO_BLK_T_IN, 0, DATA_PHYS) != 0) {
+        if (blk_request(st, VIRTIO_BLK_T_IN, 0, DATA_PHYS) != 0) {
             return -1;
         }
         print("virtio: sector0 fnv=0x");
@@ -376,14 +385,14 @@ found:
         print("\n");
 
         /* 2. write the pattern to sector 1 */
-        if (blk_request(&st, VIRTIO_BLK_T_OUT, 1, WRBUF_PHYS) != 0) {
+        if (blk_request(st, VIRTIO_BLK_T_OUT, 1, WRBUF_PHYS) != 0) {
             return -1;
         }
         print("virtio: sector1 written\n");
 
         /* 3. read it back over a cleared buffer */
         for (i = 0; i < 512; i++) read_buf[i] = 0;
-        if (blk_request(&st, VIRTIO_BLK_T_IN, 1, DATA_PHYS) != 0) {
+        if (blk_request(st, VIRTIO_BLK_T_IN, 1, DATA_PHYS) != 0) {
             return -1;
         }
 
@@ -404,7 +413,7 @@ found:
         /* arbitrary LBA: sector 2048 carries a marker the host also knows,
          * so reading the wrong sector cannot look like success */
         for (i = 0; i < 512; i++) read_buf[i] = 0;
-        if (blk_read(&st, 2048u, DATA_PHYS) != 0) {
+        if (blk_read(st, 2048u, DATA_PHYS) != 0) {
             return -1;
         }
         print("virtio: sector2048 fnv=0x");
@@ -413,4 +422,33 @@ found:
     }
 
     return 0;
+}
+
+/* --- public block API ---------------------------------------------------
+ * One sector at a time. Buffers must be identity-mapped physical memory,
+ * which everything in .bss and the heap is. Kept deliberately thin: all the
+ * difficulty lives in blk_request above.
+ */
+int blk_present(void)
+{
+    return g_ready;
+}
+
+u32 blk_capacity_sectors(void)
+{
+    return g_capacity_sectors;
+}
+
+int blk_read_sector(u64 lba, void *buffer)
+{
+    if (!g_ready) return -1;
+    if (lba >= (u64)g_capacity_sectors) return -1;
+    return blk_request(&g_vring, VIRTIO_BLK_T_IN, lba, (u32)buffer);
+}
+
+int blk_write_sector(u64 lba, const void *buffer)
+{
+    if (!g_ready) return -1;
+    if (lba >= (u64)g_capacity_sectors) return -1;
+    return blk_request(&g_vring, VIRTIO_BLK_T_OUT, lba, (u32)buffer);
 }

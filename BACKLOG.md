@@ -17,11 +17,13 @@ Legacy virtio-pci, 256-entry ring, read sector 0, FNV-1a hash.
 Write a known pattern to sector 1, clear the buffer, read it back, compare.
 **Passed:** `sector0 fnv=0x206ce5e2` and `writeback fnv=0xe161b9c5 roundtrip ok`, both matching host-computed hashes (2026-11-12).
 
-### [ ] M9 — read an arbitrary sector
+### [x] M9 — read an arbitrary sector
 Expose `blk_read(lba, buffer)` and read a sector whose contents are not zero.
-**Pass:** hash of sector 2048 matches the host's hash of that sector.
+**Passed:** `virtio: sector2048 fnv=0xe7b1b310`, matching the host's hash of that sector.
 
-### [ ] M10 — panic handler instead of triple fault
+### [ ] M13 — panic handler instead of triple fault
+*Renumbered from M10 on 2026-11-15: the raw record store below was built first and took
+the M10 slot. Numbers follow the order the work happened, not the order it was imagined.*
 On any exception, dump vector, error code, EIP, and the last N log lines, then halt cleanly.
 **Pass:** an intentional null dereference prints a panic block and does not reset.
 
@@ -69,7 +71,7 @@ Probe 4 MiB, decide, write, verify.
 Run `test.bat` from a scheduled task or post-commit hook.
 **Pass:** a failing build produces a non-zero exit without human intervention.
 
-### [ ] M10 — raw record store, no partition, no filesystem
+### [x] M10 — raw record store, no partition, no filesystem
 Append-only records written straight to the bare disk: a superblock commit count, a
 per-record FNV-1a, and tolerance for a record written but never committed. No partition
 table, no filesystem, nothing between the request and the device. Full format, layouts and
@@ -79,8 +81,11 @@ pass condition in `M10-RAWSTORE.md`.
 negative test in which the host corrupts one byte inside a committed record and the guest
 must report it rather than pass silently.
 
-**Ready now:** the reference implementation and verifier,
-`py tools\rawstore_check.py --selftest` — it builds an image to spec, verifies it, corrupts
-it and proves it fails, then proves an orphan record is ignored.
+**Passed 2026-11-15:** `test.bat` reaches milestone 10 in ~6 s. Region hash
+`0x50370dfe` matched the host's independent computation; a deliberately corrupted record was
+detected and repaired; a record written but never committed was ignored; replay reproduced
+identical bytes. Reference verifier: `py tools\rawstore_check.py --selftest`.
 
-**Blocked by:** nothing. Follows M9.
+**First run disagreed with the host** — `0xbf8c9bfe` in the guest against `0x50370dfe` on
+the host — because `format` left the reserved sectors holding the previous disk contents.
+Fixed by zeroing them. A self-check would have agreed with itself.

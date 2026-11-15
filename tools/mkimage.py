@@ -15,7 +15,7 @@ import sys
 
 TOTAL_SIZE = 1474560
 BOOT_SIZE = 512
-KERNEL_LIMIT = 32 * 512          # must match KERNEL_SECTORS in stage1.asm
+KERNEL_LIMIT = 64 * 512          # must match KERNEL_SECTORS in stage1.asm
 
 
 def main(argv: list[str]) -> int:

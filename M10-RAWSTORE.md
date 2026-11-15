@@ -1,6 +1,6 @@
 # M10 — raw record store, no partition, no filesystem
 
-**Status:** specified, not implemented.
+**Status:** implemented, passing. Milestone 10.
 **Depends on:** M9 (arbitrary-LBA read), virtio-blk read/write path.
 **Sandbox:** unchanged. `run_vm.bat` with `-snapshot`, file-backed images, no NIC.
 
@@ -29,7 +29,7 @@ Fixed 512-byte sectors, 8 MiB image (16,384 sectors), as `mkdisk.py` already bui
 | Region | Sectors | Contents |
 |---|---|---|
 | Superblock | 0 | commit record — the only authority on how many records exist |
-| Reserved | 1–15 | left empty for future metadata; nothing reads it |
+| Reserved | 1–15 | held for future metadata; `format` zeroes it so the region hash does not depend on what was on the disk beforehand |
 | Records | 16 → 16,383 | 4,092 fixed-size records, 4 sectors (2,048 bytes) each |
 
 A record never spans a boundary and is never moved. Record `i` starts at
@@ -125,10 +125,55 @@ the guest must detect it. A verifier that cannot fail is not a verifier — the 
 - **Performance.** This is a correctness milestone. `io_bench` already owns the numbers, and
   its finding stands: writing fewer bytes beats writing faster.
 
+## Result
+
+`test.bat` reaches milestone 10 in about six seconds:
+
+```
+store: formatted 16384 sectors, 4092 slots
+store: appended 64, count=64
+store: rec0 fnv=0x23f9753d         host expects 0x23f9753d
+store: rec63 fnv=0x2976596b        host expects 0x2976596b
+store: verify ok 64/64
+store: superblock fnv=0x661fc21c   host expects 0x661fc21c
+store: region fnv=0x50370dfe       host expects 0x50370dfe
+store: orphan ignored
+store: verify FAIL rec 32          deliberate corruption, detected
+store: verify ok 64/64             and repaired
+store: out of range 64
+store: full 4092
+store: replay identical
+```
+
+### The defect this design caught
+
+The first run disagreed with the host: the guest reported `0xbf8c9bfe` for the region, the
+host `0x50370dfe`.
+
+Cause: `format` wrote the superblock but left the reserved sectors 1–15 holding whatever
+was already on the disk — the previous testdisk pattern. The region hash therefore depended
+on the disk's history rather than on the formatter, which is precisely what a formatter is
+supposed to eliminate. Fixed by zeroing the reserved area as part of `format`.
+
+A self-check would have agreed with itself and shipped. Two independent implementations
+did not.
+
+### The verifier was proved able to fail
+
+- tampering the region hash in the log → `RESULT: FAIL`
+- deleting the `verify FAIL rec 32` line → `RESULT: FAIL`
+
+### Side effect
+
+The kernel outgrew its 16 KB load area, so `KERNEL_SECTORS` in `stage1.asm` and
+`KERNEL_LIMIT` in `mkimage.py` moved together to 64 sectors (32 KB). Those two numbers must
+always change as a pair; the comment in each says so.
+
 ## Order of work
 
-1. `tools/rawstore_check.py` — build an image to spec, verify one, corrupt one, prove it
-   detects the corruption. **Done: the reference implementation exists and self-tests.**
-2. `kernel/store.c` — format, append, read, verify, reusing the existing virtio-blk path.
-3. Wire into `kernel.c` startup and add the ten checks to `verify.py`.
-4. Only then, `0.1.2` — and only if all eleven lines pass.
+1. `tools/rawstore_check.py` — build, verify, corrupt, prove the corruption is detected.
+   **Done.**
+2. `kernel/store.c` — format, append, read, verify, on the existing virtio-blk path.
+   **Done.**
+3. Wired into `kernel.c` and checked by `verify.py`. **Done, milestone 10.**
+4. `0.1.2` — once the wording in `0.1.1` is settled.
