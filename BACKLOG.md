@@ -89,3 +89,22 @@ identical bytes. Reference verifier: `py tools\rawstore_check.py --selftest`.
 **First run disagreed with the host** — `0xbf8c9bfe` in the guest against `0x50370dfe` on
 the host — because `format` left the reserved sectors holding the previous disk contents.
 Fixed by zeroing them. A self-check would have agreed with itself.
+
+### [ ] M14 — boot from a disk that has it (geometry-independent boot)
+`stage1.asm` reads the kernel with floppy CHS arithmetic (18 sectors/track, 2 heads), so the
+same bytes cannot boot from a USB stick or a hard disk. Replace it with INT 13h LBA reads
+(AH=42h), keeping the CHS loop as a fallback for any drive whose BIOS lacks extensions.
+Emit `L` or `C` to COM1 so the path taken is observable in the log rather than claimed.
+Full design, packet layout and pass condition in `M14-BOOT.md`.
+
+**Pass:** floppy boot still reaches milestone 10 with unchanged hashes; the same image
+attached as USB mass storage and as a hard disk also reaches milestone 10, with the store
+region hash identical across all three; marker `L` present on both non-floppy runs; a medium
+truncated to 16 sectors produces a logged disk error and no hang.
+
+**Why it matters:** without it, ANVIL cannot leave the floppy it was born on, and no
+installer is possible.
+
+**No USB hardware required.** QEMU presents a file as a USB mass storage device, which tests
+the thing that is actually in question — geometry independence. Real firmware compatibility
+is a separate, parked concern.
