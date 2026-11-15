@@ -150,3 +150,15 @@ the difference, which is the point. Spec in `M17-LOOP.md`.
 strictly lower sectors or requests; every accepted policy re-verified; a deliberately bad
 proposal REJECTED (a loop that only accepts is a rubber stamp); repeatable across two runs;
 decisions recorded append-only outside the kernel.
+
+### [x] M18 — know the size of what you manage (64-bit capacity and LBA)
+The kernel kept only the low dword of the device's sector count, so a 3 TiB device was
+described as ~1 TiB and every LBA past that boundary was refused - with the entire suite
+passing, because every test worked near the start of the disk. Capacity is now 64-bit, all
+bounds checks widened, and `store_probe_last_sector()` reads LBA capacity-1 and reports its
+hash so the 64-bit path cannot regress unnoticed. Spec and results in `M18-LARGE-MEDIA.md`.
+
+**Passed 2026-11-15:** 3 TiB device reports 6,442,450,944 sectors (lo=2147483648 hi=1); last
+sector read at LBA 6,442,450,943 with fnv 0x1c9cd7c5, identical to the host's own FNV of the
+pattern it wrote there with qemu-io. 8 MiB suite, USB boot and the policy comparison all still
+pass. Two checks print [SKIP] rather than quietly passing, because the device is not testdisk.img.

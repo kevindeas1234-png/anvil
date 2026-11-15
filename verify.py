@@ -151,7 +151,8 @@ def newest_log(base: str) -> str | None:
     return max(logs, key=os.path.getmtime) if logs else None
 
 
-def check(path: str, require_lba: bool = False) -> bool:
+def check(path: str, require_lba: bool = False,
+          device_sectors: int = 0, no_device_hashes: bool = False) -> bool:
     print(f"\n{path}")
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
@@ -209,6 +210,39 @@ def check(path: str, require_lba: bool = False) -> bool:
             print("  [FAIL] this configuration must use extended LBA reads, "
                   "but the guest fell back to CHS - geometry is still a dependency")
             ok = False
+
+    # Optional: a device larger than 2 TiB. Every other check works near the start
+    # of the disk, so without this a 32-bit sector count can describe a 3 TiB
+    # device as ~1 TiB and nothing fails. The test contract is that the host
+    # writes 0xAB into the device's last sector before booting.
+    if device_sectors:
+        match = re.search(r"virtio: capacity lo=(\d+) hi=(\d+)", text)
+        if not match:
+            print("  [FAIL] no capacity line in the log")
+            ok = False
+        else:
+            reported = (int(match.group(2)) << 32) | int(match.group(1))
+            same = reported == device_sectors
+            print(f"  [{'PASS' if same else 'FAIL'}] capacity {reported} sectors "
+                  f"(host expects {device_sectors})")
+            ok = ok and same
+
+        expected_fnv = fnv1a32(bytes([0xAB]) * 512)
+        match = re.search(
+            r"store: last sector lba_lo=(\d+) lba_hi=(\d+) fnv=0x([0-9a-fA-F]{8})", text)
+        if not match:
+            print("  [FAIL] no last-sector read in the log")
+            ok = False
+        else:
+            lba = (int(match.group(2)) << 32) | int(match.group(1))
+            fnv = int(match.group(3), 16)
+            lba_ok = lba == device_sectors - 1
+            fnv_ok = fnv == expected_fnv
+            print(f"  [{'PASS' if lba_ok else 'FAIL'}] last sector lba {lba} "
+                  f"(host expects {device_sectors - 1})")
+            print(f"  [{'PASS' if fnv_ok else 'FAIL'}] last sector 0x{fnv:08x} "
+                  f"(host expects 0x{expected_fnv:08x})")
+            ok = ok and lba_ok and fnv_ok
 
     def require(markers: tuple[str, ...]) -> None:
         nonlocal ok
@@ -283,6 +317,12 @@ def check(path: str, require_lba: bool = False) -> bool:
             if not match:
                 print("  [FAIL] no sector-0 hash in the log")
                 ok = False
+            elif no_device_hashes:
+                # A non-test-disk device has different contents, so this
+                # comparison has no meaning here. Say so out loud rather than
+                # letting it pass quietly - a skipped check must be visible.
+                print("  [SKIP] sector0 not compared: the device is not "
+                      "images/testdisk.img")
             elif os.path.isfile(image):
                 with open(image, "rb") as handle:
                     expected = fnv1a32(handle.read(512))
@@ -312,7 +352,10 @@ def check(path: str, require_lba: bool = False) -> bool:
         if milestone >= 9:
             require(M9_MARKERS)
             match_lba = re.search(r"virtio: sector2048 fnv=0x([0-9a-fA-F]{8})", text)
-            if match_lba and os.path.isfile(image):
+            if match_lba and no_device_hashes:
+                print("  [SKIP] lba 2048 not compared: the device is not "
+                      "images/testdisk.img")
+            elif match_lba and os.path.isfile(image):
                 with open(image, "rb") as handle:
                     handle.seek(LBA_MARKER * 512)
                     expected_lba = fnv1a32(handle.read(512))
@@ -358,6 +401,13 @@ def main(argv: list[str]) -> int:
     here = os.path.dirname(os.path.abspath(__file__))
     require_lba = "--require-lba" in argv
     argv = [item for item in argv if item != "--require-lba"]
+    no_device_hashes = "--no-device-hashes" in argv
+    argv = [item for item in argv if item != "--no-device-hashes"]
+    device_sectors = 0
+    if "--device-sectors" in argv:
+        index = argv.index("--device-sectors")
+        device_sectors = int(argv[index + 1])
+        del argv[index:index + 2]
     if argv:
         paths = argv
     else:
@@ -369,7 +419,8 @@ def main(argv: list[str]) -> int:
         print("Run run_vm.bat first.")
         return 2
 
-    passed = all([check(path, require_lba) for path in paths])
+    passed = all([check(path, require_lba, device_sectors, no_device_hashes)
+                  for path in paths])
     print("\nRESULT:", "PASS" if passed else "FAIL")
     return 0 if passed else 1
 

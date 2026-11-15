@@ -32,7 +32,7 @@ extern void *memcpy(void *dest, const void *src, u32 count);
 extern int blk_read_sector(u64 lba, void *buffer);
 extern int blk_write_sector(u64 lba, const void *buffer);
 extern int blk_write_run(u64 lba, const void *buffer, u32 sectors);
-extern u32 blk_capacity_sectors(void);
+extern u64 blk_capacity_sectors(void);
 extern int blk_present(void);
 
 #define SECTOR       512u
@@ -338,6 +338,30 @@ int store_read(u32 index, u8 *out, u32 *length)
     return 0;
 }
 
+
+/* Read the device's last sector and report where it was and what it hashed to.
+ *
+ * This is the check the suite was missing: every other test works near the start
+ * of the disk, so a 32-bit sector count could describe a 3 TiB device as ~1 TiB
+ * and nothing failed. A read at capacity-1 cannot pass unless the whole 64-bit
+ * LBA path works. */
+static void store_probe_last_sector(void)
+{
+    u64 capacity = blk_capacity_sectors();
+    u64 lba = capacity - 1u;
+
+    if (blk_read_sector(lba, spare) != 0) {
+        print("store: last sector unreadable\n");
+        return;
+    }
+    print("store: last sector lba_lo=");
+    put_dec((u32)(lba & 0xFFFFFFFFu));
+    print(" lba_hi=");
+    put_dec((u32)(lba >> 32));
+    print(" fnv=0x");
+    put_hex(fnv1a(spare, SECTOR));
+    print("\n");
+}
 /* --- verification ------------------------------------------------------- */
 static int store_verify(u32 *first_bad)
 {
@@ -399,8 +423,6 @@ int store_selftest(void)
         return -1;
     }
     print("store: formatted ");
-    put_dec(blk_capacity_sectors());
-    print(" sectors, ");
     put_dec(STORE_CAPACITY);
     print(" slots\n");
 
@@ -535,6 +557,8 @@ int store_selftest(void)
     for (i = 0; i < 64; i++) {
         if (store_append_generated() < 0) return -1;
     }
+    store_probe_last_sector();
+
     region_second = region_fnv();
     if (region_second == region_first) {
         print("store: replay identical\n");

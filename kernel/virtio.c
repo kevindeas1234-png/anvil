@@ -103,7 +103,7 @@ struct vring_state {
 /* The boot-time test leaves the device usable; these keep that state so other
  * modules can issue their own requests instead of re-claiming the device. */
 static struct vring_state g_vring;
-static u32 g_capacity_sectors;
+static u64 g_capacity;        /* sectors; 64-bit, because disks exceed 2 TiB */
 static int g_ready;
 
 /* --- port I/O ---------------------------------------------------------- */
@@ -302,13 +302,16 @@ found:
         u32 cap_lo = inl((u16)(io_base + REG_CONFIG));
         u32 cap_hi = inl((u16)(io_base + REG_CONFIG + 4));
 
-        print("virtio: capacity=");
+        /* Both halves, and a 64-bit value kept. Storing only the low dword
+         * made a 3 TiB disk look like ~1 TiB and refused every LBA past that
+         * boundary as out of range - silently, with every test still passing. */
+        print("virtio: capacity lo=");
         put_dec(cap_lo);
-        print(" sectors (hi=");
+        print(" hi=");
         put_dec(cap_hi);
-        print(")\n");
+        print("\n");
 
-        g_capacity_sectors = cap_lo;
+        g_capacity = ((u64)cap_hi << 32) | (u64)cap_lo;
     }
 
     /* reset, acknowledge, then claim the device */
@@ -434,22 +437,22 @@ int blk_present(void)
     return g_ready;
 }
 
-u32 blk_capacity_sectors(void)
+u64 blk_capacity_sectors(void)
 {
-    return g_capacity_sectors;
+    return g_capacity;
 }
 
 int blk_read_sector(u64 lba, void *buffer)
 {
     if (!g_ready) return -1;
-    if (lba >= (u64)g_capacity_sectors) return -1;
+    if (lba >= g_capacity) return -1;
     return blk_request(&g_vring, VIRTIO_BLK_T_IN, lba, (u32)buffer, 512);
 }
 
 int blk_write_sector(u64 lba, const void *buffer)
 {
     if (!g_ready) return -1;
-    if (lba >= (u64)g_capacity_sectors) return -1;
+    if (lba >= g_capacity) return -1;
     return blk_request(&g_vring, VIRTIO_BLK_T_OUT, lba, (u32)buffer, 512);
 }
 /* Several consecutive sectors in one request, so that a caller can trade
@@ -459,6 +462,6 @@ int blk_write_run(u64 lba, const void *buffer, u32 sectors)
 {
     if (!g_ready) return -1;
     if (sectors == 0 || sectors > 128) return -1;
-    if (lba + sectors > (u64)g_capacity_sectors) return -1;
+    if (lba + (u64)sectors > g_capacity) return -1;
     return blk_request(&g_vring, VIRTIO_BLK_T_OUT, lba, (u32)buffer, sectors * 512u);
 }
