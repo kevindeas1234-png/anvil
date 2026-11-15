@@ -34,8 +34,11 @@ def fnv1a(data: bytes) -> int:
     return h
 
 
-def build(chunk: int, flush: int, pack_threshold: int = 0) -> bytes:
-    body = struct.pack("<8sHHHH", MAGIC, chunk, flush, pack_threshold, 0)
+def build(chunk: int, flush: int, pack_threshold: int = 0,
+          reserved_byte: int = 0) -> bytes:
+    # low byte of the reserved half-word is the kernel fault-test selector
+    body = struct.pack("<8sHHHH", MAGIC, chunk, flush, pack_threshold,
+                       reserved_byte & 0xFF)
     block = body + struct.pack("<I", fnv1a(body))
     return block.ljust(SECTOR, b"\0")
 
@@ -102,6 +105,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--chunk", type=int, default=4)
     parser.add_argument("--flush", type=int, default=1)
     parser.add_argument("--pack-threshold", type=int, default=0)
+    parser.add_argument("--reserved", type=int, default=0,
+                        help="kernel test selector: 13 asks the fault test to raise #GP")
     parser.add_argument("--clear", action="store_true")
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--selfcheck", action="store_true")
@@ -118,7 +123,7 @@ def main(argv: list[str]) -> int:
     if not os.path.isfile(args.image):
         print(f"[policy] no such image: {args.image}")
         return 2
-    block = build(args.chunk, args.flush, args.pack_threshold)
+    block = build(args.chunk, args.flush, args.pack_threshold, args.reserved)
     code = write(args.image, block)
     if code == 0:
         print(f"[policy] chunk={args.chunk} flush={args.flush} written to {args.image}")

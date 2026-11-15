@@ -194,6 +194,7 @@ static void policy_load(void)
     }
     if (memcmp8(pol, "ANVLPOL1", 8) != 0
         || get_u32(pol + 0x10) != fnv1a(pol, 0x10)) {
+        pol[0x0E] = 0;          /* a junk table must not select a test mode */
         print("store: policy invalid (defaults)\n");
         return;
     }
@@ -572,4 +573,12 @@ int store_selftest(void)
     }
 
     return 0;
+}
+
+/* The policy table's reserved byte doubles as a test selector: 0x0D asks the
+ * fault test to raise a general protection fault instead of an invalid opcode.
+ * It is policy, so exercising the panic path needs no rebuild. */
+u32 store_fault_mode(void)
+{
+    return pol[0x0E];
 }

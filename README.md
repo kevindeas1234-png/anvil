@@ -77,6 +77,7 @@ The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot
 | virtio-blk write + read-back | pattern written to sector 1, buffer cleared, read back, hash matches |
 | Arbitrary-LBA read | LBA 2048 hashed in the guest, compared with the host |
 | Raw record store | 64 records on a bare disk with no partition table and no filesystem; the whole committed region hashed in the guest and matched against an independent host implementation |
+| Faults explain themselves | vector by name, error code, and the last twelve lines printed — then a clean halt, never a silent reset |
 | Boots from floppy **and** USB/disk | the same image boots from both; the boot sector prints `L` (extended LBA reads) or `C` (CHS fallback) to the serial log, so how it loaded is recorded, not assumed |
 
 The point of the last four is that **the guest's claim and the host's measurement are

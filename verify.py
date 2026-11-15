@@ -38,8 +38,15 @@ M2_MARKERS = (
 
 M3_MARKERS = (
     "fault test: raising #UD",
-    "exception 0x00000006",
+    "exception 0x",          # the vector is checked exactly below, not matched here
     " handled",
+)
+
+# M13: a fault must report what it was, where, and what the kernel had been doing.
+M13_MARKERS = (
+    "panic: vector=0x",
+    "panic: recent output",
+    "panic: halted",
 )
 
 M4_MARKERS = (
@@ -152,7 +159,8 @@ def newest_log(base: str) -> str | None:
 
 
 def check(path: str, require_lba: bool = False,
-          device_sectors: int = 0, no_device_hashes: bool = False) -> bool:
+          device_sectors: int = 0, no_device_hashes: bool = False,
+          expect_panic_vector: int = -1) -> bool:
     print(f"\n{path}")
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
@@ -251,6 +259,31 @@ def check(path: str, require_lba: bool = False,
             print(f"  [{'PASS' if hit else 'FAIL'}] {marker!r}")
             ok = ok and hit
 
+    def check_panic() -> None:
+        """M13. Defined once and called from every branch that runs a fault test.
+
+        It used to live inline in the lower branch only, which milestone-10 logs
+        never reach - so a wrong expected vector passed silently. A check that
+        cannot fail is worse than no check.
+        """
+        nonlocal ok
+        if "panic:" not in text:
+            return
+        require(M13_MARKERS)
+        match = re.search(r"panic: vector=0x([0-9a-fA-F]{8})", text)
+        if not match:
+            print("  [FAIL] panic block has no vector")
+            ok = False
+            return
+        got = int(match.group(1), 16)
+        if expect_panic_vector >= 0:
+            same = got == expect_panic_vector
+            print(f"  [{'PASS' if same else 'FAIL'}] panic vector 0x{got:08x} "
+                  f"(expected 0x{expect_panic_vector:08x})")
+            ok = ok and same
+        else:
+            print(f"  [PASS] panic vector reported: 0x{got:08x}")
+
     def check_ticks() -> None:
         nonlocal ok
         observed = [int(value) for value in TICK_LINE.findall(text)]
@@ -274,6 +307,7 @@ def check(path: str, require_lba: bool = False,
             require(("heap: alloc/free ok",))
         check_ticks()
         require(M3_MARKERS)
+        check_panic()
 
         if "store: formatted" in text:
             # M10: records on the bare disk, no partition table, no filesystem.
@@ -391,6 +425,7 @@ def check(path: str, require_lba: bool = False,
 
     if milestone >= 3:
         require(M3_MARKERS)
+        check_panic()
 
     if not ok and reached:
         print(f"  hint: execution got as far as {reached[-1]!r} and then stopped")
@@ -403,6 +438,11 @@ def main(argv: list[str]) -> int:
     argv = [item for item in argv if item != "--require-lba"]
     no_device_hashes = "--no-device-hashes" in argv
     argv = [item for item in argv if item != "--no-device-hashes"]
+    expect_panic_vector = -1
+    if "--expect-panic-vector" in argv:
+        index = argv.index("--expect-panic-vector")
+        expect_panic_vector = int(argv[index + 1], 0)
+        del argv[index:index + 2]
     device_sectors = 0
     if "--device-sectors" in argv:
         index = argv.index("--device-sectors")
@@ -419,8 +459,8 @@ def main(argv: list[str]) -> int:
         print("Run run_vm.bat first.")
         return 2
 
-    passed = all([check(path, require_lba, device_sectors, no_device_hashes)
-                  for path in paths])
+    passed = all([check(path, require_lba, device_sectors, no_device_hashes,
+                        expect_panic_vector) for path in paths])
     print("\nRESULT:", "PASS" if passed else "FAIL")
     return 0 if passed else 1
 

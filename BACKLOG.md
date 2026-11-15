@@ -21,7 +21,7 @@ Write a known pattern to sector 1, clear the buffer, read it back, compare.
 Expose `blk_read(lba, buffer)` and read a sector whose contents are not zero.
 **Passed:** `virtio: sector2048 fnv=0xe7b1b310`, matching the host's hash of that sector.
 
-### [ ] M13 — panic handler instead of triple fault
+### [x] M13 — panic handler instead of triple fault
 *Renumbered from M10 on 2026-11-15: the raw record store below was built first and took
 the M10 slot. Numbers follow the order the work happened, not the order it was imagined.*
 On any exception, dump vector, error code, EIP, and the last N log lines, then halt cleanly.
@@ -46,7 +46,9 @@ Queue depth: no effect. In-place: worse. Compression: 3.6x when it pays, 0.17x w
 ### [x] `choose.py` policy
 Probe 4 MiB, decide, write, verify.
 
-### [ ] M13 — access planner
+### [ ] M19 — access planner
+*Renumbered from M13 on 2026-11-15: the implemented panic handler took that number first. A
+duplicate identifier is worse than a gap, and the numbers follow the order work happened.*
 `planner.py`: probe device + data, choose path/chunk/depth/compression, execute, verify.
 **Pass:** HDD picks sequential depth-1 4 MiB and verifies; NVMe picks 1 MiB depth 16; text payload packs.
 **Status:** implemented and self-tested (in-memory FS); awaiting real-media runs. Depth is recommended but execution is depth-1 only.
@@ -162,3 +164,13 @@ hash so the 64-bit path cannot regress unnoticed. Spec and results in `M18-LARGE
 sector read at LBA 6,442,450,943 with fnv 0x1c9cd7c5, identical to the host's own FNV of the
 pattern it wrote there with qemu-io. 8 MiB suite, USB boot and the policy comparison all still
 pass. Two checks print [SKIP] rather than quietly passing, because the device is not testdisk.img.
+
+**Passed 2026-11-15:** a fault now prints the vector by name, the error code, and the last
+twelve lines the kernel wrote, then halts and exits the VM rather than resetting. Two faults
+are exercised: `#UD` by default, and a genuine `#GP` when the policy reserved byte is `0x0D`.
+A null dereference is impossible here - the identity map covers all 4 GiB - and that is stated
+rather than quietly substituted. Two defects were found building it: the panic report captured
+its own output (fixed with a quiet flag), and the new vector assertion sat in a branch
+milestone-10 logs never reach, so a wrong expected vector passed silently.
+
+**This closes condition 4 of the publishing bar** in `CHARTER.md`.

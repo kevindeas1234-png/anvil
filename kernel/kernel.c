@@ -26,6 +26,7 @@ extern void exception_panic(u32 vector, u32 error, u32 eip);
 extern void timer_tick(void);
 extern int virtio_test(void);
 extern int store_selftest(void);
+extern u32 store_fault_mode(void);
 
 typedef struct {
     u32 count;      /* number of E820 entries            */
@@ -100,10 +101,73 @@ void *memcpy(void *dest, const void *src, u32 count)
     return dest;
 }
 
+void print(const char *s);      /* declared ahead of the ring buffer that uses it */
+
+/* --- recent-output ring -------------------------------------------------
+ * A panic that says only "vector 13" is nearly useless. This keeps the last
+ * few lines the kernel printed so the fault can be printed with its context,
+ * which is usually the only clue that survives.
+ */
+#define PANIC_LINES 12
+#define PANIC_WIDTH 60
+
+static char panic_lines[PANIC_LINES][PANIC_WIDTH];
+static int  panic_next;
+static int  panic_col;
+static int  panic_wrapped;
+static int  panic_quiet;      /* set while reporting, so the report cannot capture itself */
+
+static void panic_capture(char c)
+{
+    if (panic_quiet) return;
+    if (c == '\r') return;
+    if (c == '\n') {
+        panic_lines[panic_next][panic_col] = 0;
+        panic_next = (panic_next + 1) % PANIC_LINES;
+        if (panic_next == 0) panic_wrapped = 1;
+        panic_col = 0;
+        return;
+    }
+    if (panic_col < PANIC_WIDTH - 1) {
+        panic_lines[panic_next][panic_col++] = c;
+    }
+}
+
+static void panic_dump_recent(void)
+{
+    int count = panic_wrapped ? PANIC_LINES : panic_next;
+    int i;
+
+    /* Reading the ring while printing into it corrupts both: the report
+     * captured itself and the lines came out interleaved. Stop capturing
+     * first, then report. */
+    panic_quiet = 1;
+    print("panic: recent output\r\n");
+    for (i = 0; i < count; i++) {
+        int index = (panic_next - count + i + PANIC_LINES * 2) % PANIC_LINES;
+        print("  | ");
+        print(panic_lines[index]);
+        print("\r\n");
+    }
+}
+
+static const char *vector_name(u32 vector)
+{
+    switch (vector) {
+    case 0:  return "divide error";
+    case 6:  return "invalid opcode";
+    case 8:  return "double fault";
+    case 13: return "general protection";
+    case 14: return "page fault";
+    default: return "exception";
+    }
+}
+
 static void serial_putc(char c)
 {
     while ((inb(COM1 + 5) & 0x20) == 0) { }
     outb(COM1, (u8)c);
+    panic_capture(c);
 }
 
 void print(const char *s)
@@ -375,6 +439,21 @@ void exception_panic(u32 vector, u32 error, u32 eip)
     put_hex(error);
     print(" handled\r\n");
 
+    /* M13: a fault with no context is a mystery. Say what it was, where it
+     * happened, and what the kernel had just been doing. */
+    print("panic: vector=0x");
+    put_hex(vector);
+    print(" ");
+    print((char *)vector_name(vector));
+    print("\r\n");
+    print("panic: eip=0x");
+    put_hex(eip);
+    print(" err=0x");
+    put_hex(error);
+    print("\r\n");
+    panic_dump_recent();
+    print("panic: halted\r\n");
+
     outb(EXIT_PORT, 0x10);
 
     for (;;) {
@@ -570,7 +649,17 @@ void kmain(u32 boot_info_addr)
     shell();
 
     print("fault test: raising #UD\r\n");
-    __asm__ __volatile__("ud2");
+    if (store_fault_mode() == 0x0D) {
+        /* A genuine protection fault rather than an invalid opcode. A null
+         * dereference cannot be used here: the identity map covers all 4 GiB,
+         * so address 0 is as valid as any other. Loading a selector that is
+         * not in the GDT faults for real. */
+        print("fault test: mode=general protection\r\n");
+        __asm__ __volatile__("mov $0x28, %ax\n\tmov %ax, %ds");
+        print("fault test: no fault raised\r\n");
+    } else {
+        __asm__ __volatile__("ud2");
+    }
 
     for (;;) {
         cpu_cli();

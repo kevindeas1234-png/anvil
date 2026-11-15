@@ -20,6 +20,10 @@ device's last sector, so how much work the machine does is a decision made above
 rather than compiled into it. Byte-identical output under every policy; `flush=16` moves 17%
 fewer sectors, `chunk=4` issues 70% fewer requests. New: `tools/setpolicy.py`,
 `tools/policy_test.py`.
+- **M13: a fault that explains itself.** A fault now prints the vector by name, the error
+  code, and the last twelve lines the kernel wrote, then halts and exits the VM instead of
+  resetting silently. `#UD` is the default; a genuine `#GP` is available through the policy
+  table's reserved byte, so the panic path is exercised with a real protection failure.
 - `CREDITS.md` — contributors, and a precise statement of what the record does and does not
   prove.
 - `DRIVER-LIST.md` — why one machine's driver inventory is a fingerprint, not a plan, and
