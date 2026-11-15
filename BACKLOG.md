@@ -115,3 +115,18 @@ reaches milestone 10 with an identical `store: region fnv=0x50370dfe`. Truncatin
 to 16 KB produces `ANVIL: disk read failed` and a clean halt. At 32 KB the overrun read
 *succeeded with zeros* instead of failing - which is why reads are bounds-checked against
 capacity rather than trusting the device to complain.
+### [ ] M16 — let the policy be replaced, not the mechanisms
+The kernel owns the mechanisms and the measurements; the decision layer is a 16-byte table on
+disk, so better judgement improves the machine without a rebuild. Invariant: policy may change
+cost, never correctness. Full spec in `M16-POLICY.md`.
+
+**Pass:** two policy tables, one unchanged suite. Both pass every existing check, `store:
+region fnv` is identical under both, and the larger chunk reports strictly fewer sectors moved.
+A corrupt or missing policy table falls back to defaults and still passes.
+
+**Why:** charter directives 3, 4 and 5 — an AI that directs the hardware, and does it better as
+it improves. "Let the AI manage the machine" is unfalsifiable; "two policies, identical bytes,
+fewer sectors" is a claim that can be wrong, which is what makes it worth building.
+
+**Ordering note:** M11 (compression policy) moves ahead of the panic handler. Reliability
+matters, but efficiency is directive 4 and it is measurable.

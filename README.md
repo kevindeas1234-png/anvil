@@ -25,6 +25,21 @@ milestone detected: 9
 RESULT: PASS
 ```
 
+## Why this exists
+
+Not to run faster for its own sake. The measurements in `io_bench` are the argument: on
+the same disk, raising queue depth from 1 to 64 moved throughput from 56 to 75 MiB/s, while
+deciding to write 4 MiB instead of 256 MiB was 3.6 times faster. The leverage was never in
+pushing bytes harder — it was in the decision made above the data path.
+
+So the thesis is narrow and testable: **a kernel that knows the workload can beat one that
+merely moves bytes quickly.** ANVIL measures what it moved, ANVIL verifies what it wrote,
+and the policy that decides *how* is meant to sit above the kernel rather than inside it —
+so that better judgement improves the machine without a single line of driver code changing.
+
+That is also why every claim here is checked by a script against a hash computed elsewhere.
+A kernel whose performance depends on its own judgement had better be verifiable.
+
 ## What it actually does
 
 The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot path:
