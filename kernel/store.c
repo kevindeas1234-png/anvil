@@ -31,6 +31,7 @@ extern void *memcpy(void *dest, const void *src, u32 count);
 /* virtio.c */
 extern int blk_read_sector(u64 lba, void *buffer);
 extern int blk_write_sector(u64 lba, const void *buffer);
+extern int blk_write_run(u64 lba, const void *buffer, u32 sectors);
 extern u32 blk_capacity_sectors(void);
 extern int blk_present(void);
 
@@ -45,7 +46,19 @@ extern int blk_present(void);
 static u8  sb[SECTOR]  __attribute__((aligned(16)));
 static u8  rec[REC_SIZE] __attribute__((aligned(16)));
 static u8  spare[REC_SIZE] __attribute__((aligned(16)));
+static u8  pol[SECTOR] __attribute__((aligned(16)));
 static u32 g_count;
+
+/* --- policy: data, not code --------------------------------------------
+ * The kernel supplies the mechanisms and the counts; how much work to do is a
+ * decision that belongs above it, so it is read from a sector rather than
+ * compiled in. Values are clamped: a policy may ask for more or less work, it
+ * may never ask for a different result.
+ */
+static u32 g_chunk = 1;        /* sectors per device request, 1..REC_SECTORS */
+static u32 g_flush = 1;        /* commit the superblock every N appends */
+static u32 g_sectors_moved;    /* every sector written, including commits */
+static u32 g_requests;         /* every device request issued */
 
 /* --- little-endian helpers ---------------------------------------------- */
 static void put_u32(u8 *p, u32 v)
@@ -147,6 +160,8 @@ static int commit_count(u32 count)
     if (blk_write_sector(0, sb) != 0) {
         return -1;
     }
+    g_sectors_moved += 1;
+    g_requests += 1;
     g_count = count;
     return 0;
 }
@@ -157,17 +172,51 @@ int store_format(void)
 
     /* Zero the reserved area as well as writing the superblock. Without this
      * the region hash depends on whatever happened to be on the disk before
-     * the format, which makes a formatter that does not fully format. */
+     * the format, which makes a formatter that does not fully format.
+     * Sector 1 is skipped: it holds the policy, which is configuration and
+     * must survive a format. */
     memset(sb, 0, SECTOR);
     for (sector = 1; sector < DATA_START; sector++) {
         if (blk_write_sector(sector, sb) != 0) return -1;
+        /* counted, or the metric lies: a format is real work */
+        g_sectors_moved += 1;
+        g_requests += 1;
     }
     return commit_count(0);
+}
+
+/* --- policy table ------------------------------------------------------- */
+static void policy_load(void)
+{
+    if (blk_read_sector(blk_capacity_sectors() - 1u, pol) != 0) {
+        print("store: policy absent (defaults)\n");
+        return;
+    }
+    if (memcmp8(pol, "ANVLPOL1", 8) != 0
+        || get_u32(pol + 0x10) != fnv1a(pol, 0x10)) {
+        print("store: policy invalid (defaults)\n");
+        return;
+    }
+
+    g_chunk = (u32)pol[0x08] | ((u32)pol[0x09] << 8);
+    g_flush = (u32)pol[0x0A] | ((u32)pol[0x0B] << 8);
+
+    if (g_chunk < 1) g_chunk = 1;
+    if (g_chunk > REC_SECTORS) g_chunk = REC_SECTORS;
+    if (g_flush < 1) g_flush = 1;
+    if (g_flush > 64) g_flush = 64;
+
+    print("store: policy chunk=");
+    put_dec(g_chunk);
+    print(" flush=");
+    put_dec(g_flush);
+    print("\n");
 }
 
 int store_init(void)
 {
     if (!blk_present()) return -1;
+    policy_load();
     if (superblock_read() == 0) return 0;
     if (store_format() != 0) return -1;
     return 1;                       /* 1 means "was blank, formatted now" */
@@ -191,16 +240,39 @@ static void record_build(u8 *out, u32 index, u32 seq, const u8 *payload, u32 len
     memcpy(out + HEADER_BYTES, payload, length);
 }
 
+/* The chunk size is the one place a policy can trade request count against
+ * request size. Fewer, larger requests move the same bytes. */
 static int record_write(u32 index)
 {
-    u32 s;
+    u32 s = 0;
 
-    for (s = 0; s < REC_SECTORS; s++) {
-        if (blk_write_sector(lba_of(index) + s, rec + s * SECTOR) != 0) {
+    while (s < REC_SECTORS) {
+        u32 n = g_chunk;
+
+        if (n > REC_SECTORS - s) n = REC_SECTORS - s;
+        if (blk_write_run(lba_of(index) + s, rec + s * SECTOR, n) != 0) {
             return -1;
         }
+        g_sectors_moved += n;
+        g_requests += 1;
+        s += n;
     }
     return 0;
+}
+
+/* Commit deferral: the superblock rewrite is one sector per commit, so a policy
+ * that commits every N appends writes fewer sectors. Correctness is unaffected
+ * because the count remains the only commit point - an uncommitted record is an
+ * orphan and is ignored on the next boot. */
+static u32 g_pending;
+
+int store_flush(void)
+{
+    if (g_pending == 0) {
+        return 0;
+    }
+    g_pending = 0;
+    return commit_count(g_count);
 }
 
 static int record_read(u32 index)
@@ -245,7 +317,11 @@ int store_append_generated(void)
     payload_for(index, payload, MAX_PAYLOAD);
     record_build(rec, index, index + 1, payload, MAX_PAYLOAD);
     if (record_write(index) != 0) return -1;      /* record first... */
-    if (commit_count(index + 1) != 0) return -1;  /* ...count second */
+    g_count = index + 1;
+    g_pending += 1;
+    if (g_pending >= g_flush) {                   /* ...count second, maybe later */
+        if (store_flush() != 0) return -1;
+    }
     return (int)index;
 }
 
@@ -337,9 +413,18 @@ int store_selftest(void)
             return -1;
         }
     }
+    if (store_flush() != 0) {
+        print("store: flush failed\n");
+        return -1;
+    }
     print("store: appended 64, count=");
     put_dec(g_count);
     print("\n");
+    print("store: moved ");
+    put_dec(g_sectors_moved);
+    print(" sectors, ");
+    put_dec(g_requests);
+    print(" requests\n");
 
     /* 3/4. read the first and last back and report their payload hashes */
     record_check(0, &hash0);

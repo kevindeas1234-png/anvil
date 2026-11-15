@@ -170,7 +170,7 @@ static u32 fnv1a(const u8 *data, u32 length)
  * Returns 0 on success. Reuses descriptors 0..2 for every request, which is
  * safe because each request completes before the next one is built.
  */
-static int blk_request(struct vring_state *st, u32 type, u64 sector, u32 data_phys)
+static int blk_request(struct vring_state *st, u32 type, u64 sector, u32 data_phys, u32 bytes)
 {
     struct blk_request *req = (struct blk_request *)REQ_PHYS;
     volatile u8 *status_byte = (volatile u8 *)STAT_PHYS;
@@ -189,7 +189,7 @@ static int blk_request(struct vring_state *st, u32 type, u64 sector, u32 data_ph
     desc[0].next = 1;
 
     desc[1].addr = data_phys;
-    desc[1].len = 512;
+    desc[1].len = (u32)bytes;
     desc[1].flags = VIRTQ_DESC_F_NEXT;
     if (type == VIRTIO_BLK_T_IN) {
         desc[1].flags |= VIRTQ_DESC_F_WRITE;   /* device -> memory */
@@ -234,7 +234,7 @@ static int blk_request(struct vring_state *st, u32 type, u64 sector, u32 data_ph
  */
 static int blk_read(struct vring_state *st, u64 lba, u32 buffer)
 {
-    return blk_request(st, VIRTIO_BLK_T_IN, lba, buffer);
+    return blk_request(st, VIRTIO_BLK_T_IN, lba, buffer, 512);
 }
 
 /* --- the test ---------------------------------------------------------- */
@@ -377,7 +377,7 @@ found:
         g_ready = 1;
 
         /* 1. read sector 0 */
-        if (blk_request(st, VIRTIO_BLK_T_IN, 0, DATA_PHYS) != 0) {
+        if (blk_request(st, VIRTIO_BLK_T_IN, 0, DATA_PHYS, 512) != 0) {
             return -1;
         }
         print("virtio: sector0 fnv=0x");
@@ -385,14 +385,14 @@ found:
         print("\n");
 
         /* 2. write the pattern to sector 1 */
-        if (blk_request(st, VIRTIO_BLK_T_OUT, 1, WRBUF_PHYS) != 0) {
+        if (blk_request(st, VIRTIO_BLK_T_OUT, 1, WRBUF_PHYS, 512) != 0) {
             return -1;
         }
         print("virtio: sector1 written\n");
 
         /* 3. read it back over a cleared buffer */
         for (i = 0; i < 512; i++) read_buf[i] = 0;
-        if (blk_request(st, VIRTIO_BLK_T_IN, 1, DATA_PHYS) != 0) {
+        if (blk_request(st, VIRTIO_BLK_T_IN, 1, DATA_PHYS, 512) != 0) {
             return -1;
         }
 
@@ -443,12 +443,22 @@ int blk_read_sector(u64 lba, void *buffer)
 {
     if (!g_ready) return -1;
     if (lba >= (u64)g_capacity_sectors) return -1;
-    return blk_request(&g_vring, VIRTIO_BLK_T_IN, lba, (u32)buffer);
+    return blk_request(&g_vring, VIRTIO_BLK_T_IN, lba, (u32)buffer, 512);
 }
 
 int blk_write_sector(u64 lba, const void *buffer)
 {
     if (!g_ready) return -1;
     if (lba >= (u64)g_capacity_sectors) return -1;
-    return blk_request(&g_vring, VIRTIO_BLK_T_OUT, lba, (u32)buffer);
+    return blk_request(&g_vring, VIRTIO_BLK_T_OUT, lba, (u32)buffer, 512);
+}
+/* Several consecutive sectors in one request, so that a caller can trade
+ * request count against request size. Bounded to keep one request inside a
+ * single 64 KB window. */
+int blk_write_run(u64 lba, const void *buffer, u32 sectors)
+{
+    if (!g_ready) return -1;
+    if (sectors == 0 || sectors > 128) return -1;
+    if (lba + sectors > (u64)g_capacity_sectors) return -1;
+    return blk_request(&g_vring, VIRTIO_BLK_T_OUT, lba, (u32)buffer, sectors * 512u);
 }

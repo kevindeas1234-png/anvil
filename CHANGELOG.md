@@ -15,6 +15,11 @@ the kernel by LBA when they exist, falling back to the old CHS arithmetic when t
 The path taken is announced on COM1 as `L` or `C`, so a log states how it booted instead of
 leaving it to be assumed. The same image now boots as a floppy (`C`) and as a USB mass
 storage device (`L`), reaching identical store hashes. New: `run_vm_usb.bat`.
+- **M16: the policy layer.** Chunk size and commit cadence come from a 16-byte table in the
+device's last sector, so how much work the machine does is a decision made above the kernel
+rather than compiled into it. Byte-identical output under every policy; `flush=16` moves 17%
+fewer sectors, `chunk=4` issues 70% fewer requests. New: `tools/setpolicy.py`,
+`tools/policy_test.py`.
 - `CREDITS.md` — contributors, and a precise statement of what the record does and does not
   prove.
 - `DRIVER-LIST.md` — why one machine's driver inventory is a fingerprint, not a plan, and

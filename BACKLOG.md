@@ -115,7 +115,7 @@ reaches milestone 10 with an identical `store: region fnv=0x50370dfe`. Truncatin
 to 16 KB produces `ANVIL: disk read failed` and a clean halt. At 32 KB the overrun read
 *succeeded with zeros* instead of failing - which is why reads are bounds-checked against
 capacity rather than trusting the device to complain.
-### [ ] M16 — let the policy be replaced, not the mechanisms
+### [x] M16 — let the policy be replaced, not the mechanisms
 The kernel owns the mechanisms and the measurements; the decision layer is a 16-byte table on
 disk, so better judgement improves the machine without a rebuild. Invariant: policy may change
 cost, never correctness. Full spec in `M16-POLICY.md`.
@@ -130,3 +130,12 @@ fewer sectors" is a claim that can be wrong, which is what makes it worth buildi
 
 **Ordering note:** M11 (compression policy) moves ahead of the panic handler. Reliability
 matters, but efficiency is directive 4 and it is measurable.
+
+**Passed 2026-11-15:** `py tools\policy_test.py` runs three policies against one unchanged
+suite. All three pass the full verifier with an identical region hash `0x50370dfe`;
+`flush=16` moves 292 sectors against 352 for the defaults, and `chunk=4` issues 104 requests
+against 352. Byte-identical output, 17% fewer sectors, 70% fewer requests.
+
+Two defects found while building it: the policy table had to move out of the hashed region
+(at LBA 1 every policy changed the hash), and `format`'s writes were not being counted, which
+under-reported the baseline as 322 instead of 352.

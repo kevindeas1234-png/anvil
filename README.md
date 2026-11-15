@@ -40,6 +40,24 @@ so that better judgement improves the machine without a single line of driver co
 That is also why every claim here is checked by a script against a hash computed elsewhere.
 A kernel whose performance depends on its own judgement had better be verifiable.
 
+### The result so far
+
+Policy is data, not code: a 16-byte table in the device's last sector decides chunk size and
+commit cadence. Three policies, one unchanged test suite:
+
+| Policy | Sectors moved | Requests | Committed region hash |
+|---|---|---|---|
+| defaults (chunk 1, flush 1) | 352 | 352 | `0x50370dfe` |
+| chunk 1, flush 16 | **292** | 292 | `0x50370dfe` |
+| chunk 4, flush 8 | 296 | **104** | `0x50370dfe` |
+
+**Byte-identical output. 17% fewer sectors. 70% fewer requests.** Both runs still verify,
+and the hash is the same one an independent host implementation computes.
+
+The leverage is the decision, not the speed — which is the same lesson `io_bench` produced
+from the other direction, and the reason `tools/policy_test.py` exists to check it rather
+than a paragraph existing to assert it.
+
 ## What it actually does
 
 The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot path:

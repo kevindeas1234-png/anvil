@@ -1,6 +1,6 @@
 # M16 — let the policy be replaced, not the mechanisms
 
-**Status:** specified, not implemented.
+**Status:** implemented, passing. `py tools\policy_test.py`.
 **Depends on:** M10 (the store works and is verified by hash).
 **Answers:** charter directives 3, 4 and 5 — that the AI *directs* the machine, and that it
 does so better as it improves.
@@ -20,9 +20,12 @@ measurement  ->  policy (replaced by whoever is directing)  ->  mechanism  ->  m
 
 The kernel owns the two ends. The middle is data, not code.
 
-### Policy table, stored on disk beside the superblock
+### Policy table, stored in the device's last sector
 
-Sixteen bytes in the reserved area (LBA 1), so a policy change needs no rebuild:
+Sixteen bytes at the end of the device, deliberately **outside** the hashed data region: a
+policy must be able to change without changing the region hash, or the central claim of this
+milestone would be untestable. (It started life at LBA 1, inside the region, and the first
+run proved why that was wrong: every policy produced a different hash.)
 
 | Offset | Size | Field | Meaning |
 |---|---|---|---|
@@ -96,11 +99,45 @@ failure mode of bad policy must be *default behaviour*, never a hang.
 moves fewer sectors and produces byte-identical output" is a claim with a pass condition,
 which can be wrong. The second one is worth building.
 
+## Result
+
+Three policies against one unchanged test suite:
+
+| Policy | Sectors moved | Requests | Region hash | Verifier |
+|---|---|---|---|---|
+| invalid table (defaults: chunk 1, flush 1) | 352 | 352 | `0x50370dfe` | PASS |
+| chunk 1, flush 16 | **292** | 292 | `0x50370dfe` | PASS |
+| chunk 4, flush 8 | 296 | **104** | `0x50370dfe` | PASS |
+
+**Byte-identical output. 17% fewer sectors. 70% fewer requests.**
+
+The two levers are independent and do different things:
+
+- `flush` decides how often the superblock is rewritten, so it trades **sector writes**
+- `chunk` decides how many sectors go in one request, so it trades **request count**
+
+That separation is the useful part: it shows the metric is measuring two real costs rather
+than one number moving for unexplained reasons.
+
+### Two defects the work exposed
+
+**The policy had to move out of the data region.** At LBA 1 it sat inside the region hash, so
+every policy produced a different hash and "identical output" would have been impossible to
+demonstrate. Moved to the last sector, where it is configuration and cannot affect data.
+
+**The metric was undercounting, in the flattering direction's opposite.** `format` writes
+fifteen sectors but did not increment the counter, so the baseline read 322 instead of 352.
+That made the *headline improvement look smaller than it is* (352 -> 292, not 322 -> 292).
+Corrected: every write is now counted, including a format, because a format is real work and
+a policy that avoids one should be able to show it.
+
+An undercount in the honest direction is still a wrong number. Both were caught by comparing
+two independent runs rather than trusting one.
+
 ## Order of work
 
-1. Policy table read, validate, and default-on-failure, with the two log lines.
-2. Chunk size honoured by the write path; sector counter added to the mechanism.
-3. `test.bat` runs both policies and prints both sector counts.
-4. `verify.py` asserts identical region hashes and a strictly lower count for the larger
-   chunk.
-5. Then M11 — compression policy — reuses the same table and the same invariant.
+1. Policy table read, validate, default on failure, with the log lines. **Done.**
+2. Chunk honoured by the write path; sector and request counters in the mechanism. **Done.**
+3. `tools/policy_test.py` runs three policies and prints the comparison. **Done.**
+4. `verify.py` requires an identical region hash under every policy. **Done.**
+5. M11 — compression policy — reuses this table and this invariant. **Next.**
