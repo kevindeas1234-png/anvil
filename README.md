@@ -50,9 +50,40 @@ The point of the last four is that **the guest's claim and the host's measuremen
 compared**. A kernel that prints "disk OK" proves nothing; one whose hash has to match a
 value computed outside the VM is harder to fake and much easier to debug.
 
+## Requirements
+
+### To run it
+
+| Requirement | Minimum | Verified how |
+|---|---|---|
+| Guest RAM | **4 MiB** | see below |
+| Boot medium | ~33 KB (boot sector + 64 kernel sectors) | a 16 KB medium fails with `ANVIL: disk read failed` |
+| Firmware | legacy BIOS with INT 13h, extensions preferred | `run_vm_usb.bat` uses them; the floppy path falls back to CHS |
+| Disk (optional) | 8 MiB virtio-blk, for the record store test | `mkdisk.py` builds it |
+| CPU | any x86 with protected mode and paging | nothing exotic assumed |
+
+The memory figure is measured rather than estimated, because a guessed minimum is just a
+wish with a number attached:
+
+| Guest RAM | Result |
+|---|---|
+| 1 MiB | 6 checks fail |
+| 2 MiB | 3 fail - the paging remap cannot verify itself |
+| 3 MiB | 1 fails - no room for the 1 MiB heap arena above the 2 MiB mark |
+| **4 MiB** | **all checks pass** |
+| 256 MiB | the default, because the harness should not be the thing being tested |
+
+### Explicitly not supported
+
+- **UEFI.** Legacy BIOS only. Most machines built since 2020 can disable CSM or lack it
+  entirely, in which case this boots nothing.
+- **Any physical hardware.** One virtual device, one queue. There are no drivers for real
+  chipsets, and `DRIVER-LIST.md` explains why one machine's inventory is not a plan.
+- **More than one CPU, any network, any display, any input device.** Serial only.
+
 ## Running it
 
-Requirements, all free:
+To build it, all free:
 
 | Tool | Version used | Why |
 |---|---|---|
