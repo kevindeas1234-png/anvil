@@ -1,0 +1,25 @@
+# toolchains: re-installable, and together they are ~15k files and ~370 MB
+tools/nasm/
+tools/zig/
+tools/qemu/
+tools/*.zip
+
+# build products and generated images
+build/
+images/
+logs/
+history/
+__pycache__/
+
+# stray artefacts
+*.o
+*.obj
+*.elf
+*.bin
+*.img
+*.log
+
+# local odds and ends
+Lm studio tokens/
+_out.txt
+_err.txt

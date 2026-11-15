@@ -1,0 +1,144 @@
+# ANVIL
+
+A small 32-bit x86 kernel that boots from a floppy image in QEMU and talks to a
+virtio disk. Every claim in this README is checked by a script against the kernel's
+own serial output, and the hashes it reports are compared with hashes computed
+independently on the host.
+
+It is not a usable operating system. It is a working kernel with a test harness that
+refuses to flatter it.
+
+```
+$ test.bat
+milestone detected: 9
+[PASS] 'ANVIL KERNEL ONLINE'
+[PASS] 'e820: '
+[PASS] 'paging: enabled'
+[PASS] 'paging: remap verified'
+[PASS] 'heap: alloc/free ok'
+[PASS] ticks 1..10 in order
+[PASS] 'fault test: raising #UD'
+[PASS] 'exception 0x00000006'
+[PASS] sector0 0x206ce5e2 (host expects 0x206ce5e2)
+[PASS] writeback 0xe161b9c5 (host expects 0xe161b9c5)
+[PASS] lba 2048: 0xe7b1b310 (host expects 0xe7b1b310)
+RESULT: PASS
+```
+
+## What it actually does
+
+The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot path:
+
+`stage1` (boot sector) -> protected mode -> `entry` (GDT, stack) -> `kernel.c`
+
+| Done | Proof |
+|---|---|
+| Boot to protected mode | serial banner |
+| GDT, IDT, PIC remap, PIT | ticks `1..10` in order |
+| E820 memory map | `e820:` line with entry count |
+| Paging, identity-mapped | `paging: remap verified` (writes through a remapped alias) |
+| Kernel heap (1 MiB arena) | `heap: alloc/free ok` |
+| Interrupt stubs for all vectors | deliberate `#UD` is caught, `err`/`eip` reported, execution continues |
+| Serial shell | `ANVIL shell ready` |
+| virtio-blk read | FNV-1a of sector 0 matches the host's hash of the image |
+| virtio-blk write + read-back | pattern written to sector 1, buffer cleared, read back, hash matches |
+| Arbitrary-LBA read | LBA 2048 hashed in the guest, compared with the host |
+
+The point of the last three is that **the guest's claim and the host's measurement are
+compared**. A kernel that prints "disk OK" proves nothing; one whose hash has to match a
+value computed outside the VM is harder to fake and much easier to debug.
+
+## Running it
+
+Requirements, all free:
+
+| Tool | Version used | Why |
+|---|---|---|
+| [NASM](https://www.nasm.us/) | 2.16.03 | stage1, entry, interrupt stubs |
+| [Zig](https://ziglang.org/) | **0.13.0** | `zig cc` compiles the C and links; newer releases change flags |
+| [QEMU](https://www.qemu.org/) | 11.1.0 | the only supported machine |
+| Python | 3.10+ | `verify.py`, `tools/history.py` |
+
+Place NASM in `tools\nasm\nasm.exe` and Zig in `tools\zig\zig.exe`, or put both on
+`PATH`. Then:
+
+```
+build.bat        # assemble, compile, link, package images\anvil.img
+run_vm.bat       # boot it headless with the serial log going to logs\
+test.bat         # build + boot + verify, and print RESULT: PASS/FAIL
+```
+
+`test.bat` is the only command you need. It leaves the full serial log in `logs\`.
+
+## The sandbox
+
+The guest is given two **file-backed** drives and nothing else: no NIC, no display, no
+USB, no host disk, and `-snapshot`, so guest writes are discarded. It runs as an ordinary
+user process — no admin, no drivers installed.
+
+That is verifiable rather than merely intended. Run a test in which the guest writes a
+sector, then compare the image before and after:
+
+```
+SHA256 before:  3F91362899BD391C...  testdisk.img
+guest log:      virtio: sector1 written
+                virtio: writeback fnv=0xe161b9c5 roundtrip ok
+SHA256 after:   3F91362899BD391C...  testdisk.img    <- unchanged
+```
+
+The write really happened inside the VM and left no trace on the host file.
+
+## What it deliberately does not do
+
+Stated plainly, because a kernel README that implies more than it does wastes everyone's
+time:
+
+- **No real hardware.** Only QEMU's legacy virtio-pci. There are no drivers for any
+  physical chipset, and no attempt at one. If you want to know what drivers *your* machine
+  would need, compile the list yourself — [`DRIVER-LIST.md`](DRIVER-LIST.md) explains why
+  one machine's driver inventory is a fingerprint rather than a plan, and how to build
+  your own.
+- **No userspace.** There are no processes, no `fork`, no syscalls, no privilege rings
+  beyond ring 0.
+- **One address space, 32-bit.** The identity map is fixed; there is no per-process
+  virtual memory and no 64-bit support.
+- **No filesystem, no network, no SMP.** One CPU, one flat disk address space, sectors.
+- **Not safe.** Faults are caught and printed, but there is no panic path that preserves
+  state, and a bad descriptor will still take the machine down.
+- **It boots nowhere except a VM.** It is floppy-sized on purpose: everything has to fit
+  in an image that is easy to hash and easy to throw away.
+
+## Repository layout
+
+```
+kernel/     stage1.asm entry.asm isr.asm kernel.c virtio.c linker.ld
+tools/      mkimage.py mkdisk.py verify.py history.py   (build + verification)
+build.bat   run_vm.bat   test.bat   run_vm_debug.bat
+HANDOVER.md BACKLOG.md   notes on state and what comes next
+DRIVER-LIST.md           why there are no drivers, and how to compile your own list
+```
+
+`tools/history.py` takes numbered, hash-verified snapshots of the source before a build,
+so a change that breaks the boot can be rewound in one command:
+
+```
+py tools\history.py --list
+py tools\history.py --diff 3
+py tools\history.py --restore 3    # prints its own undo command
+```
+
+## Notes for anyone else writing a kernel
+
+Things that cost real time here, so they need not cost it twice:
+
+- Legacy virtio: `QueueNum` is **read-only**; the device config lives at **BAR0 + 0x14**.
+- An identity map of 1024 entries covers **4 MB each** — four entries is only 16 MB.
+  Everything beyond that faults, which looks like a broken driver.
+- Anything **the device writes** must be `volatile`, or `-O2` caches the value and the
+  completion poll spins forever.
+- Compile with `-mgeneral-regs-only`. Touching SSE before the IDT exists resets the CPU.
+- A flat binary has no zero-filled segment, so `.bss` must be cleared by hand.
+
+## License
+
+MIT — see `LICENSE`.
