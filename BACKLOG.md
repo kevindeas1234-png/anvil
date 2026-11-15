@@ -139,3 +139,14 @@ against 352. Byte-identical output, 17% fewer sectors, 70% fewer requests.
 Two defects found while building it: the policy table had to move out of the hashed region
 (at LBA 1 every policy changed the hash), and `format`'s writes were not being counted, which
 under-reported the baseline as 322 instead of 352.
+### [ ] M17 — close the loop: propose a policy, let the verifier judge it
+M16 built the seam but a script still writes the policy by hand, so "better judgement produces
+a better machine" has been made possible, never tested. This closes the loop: measure baseline,
+propose, run, and keep a proposal only if the output is byte-identical and the cost is strictly
+lower. The proposer can be a grid search today and a model tomorrow - the kernel cannot tell
+the difference, which is the point. Spec in `M17-LOOP.md`.
+
+**Pass:** baseline recorded; at least one proposal accepted with an identical region hash and
+strictly lower sectors or requests; every accepted policy re-verified; a deliberately bad
+proposal REJECTED (a loop that only accepts is a rubber stamp); repeatable across two runs;
+decisions recorded append-only outside the kernel.
