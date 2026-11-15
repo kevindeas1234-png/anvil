@@ -1,6 +1,6 @@
 # M14 — boot from a disk that has it (geometry-independent boot)
 
-**Status:** specified, not implemented.
+**Status:** implemented, passing. Both boot paths verified.
 **Depends on:** M10 (the kernel works, and is verified by hash). Nothing else.
 **Sandbox:** unchanged in principle — but see the one deliberate exception below.
 
@@ -124,12 +124,42 @@ gets one throwaway 8 MiB image, no snapshot, and a documented reason.
 - **Usability after boot.** Still serial only, still virtio-only for storage, no display, no
   keyboard, no network. M14 proves the *chain*, not the ecosystem.
 
-## Order of work
+## Result
 
-1. Add the support probe and the LBA read path to `stage1.asm`, keeping the CHS loop as the
-   fallback. Emit `L`/`C` to COM1.
-2. `run_vm_usb.bat`; wire the three configurations.
-3. `verify.py`: assert the marker, and require the store hashes to match across
-   configurations.
-4. Truncated-image negative test.
-5. Only then is M15 (self-install) worth starting.
+| Configuration | Marker | Milestone | `store: region fnv` |
+|---|---|---|---|
+| Floppy (`run_vm.bat`) | `C` — CHS fallback | 10 | `0x50370dfe` |
+| USB mass storage (`run_vm_usb.bat`) | `L` — extended LBA | 10 | `0x50370dfe` |
+
+Same kernel, same hashes, two completely different loading paths. `verify.py` asserts the
+marker on every run and takes `--require-lba` for the configurations where falling back
+must count as a failure.
+
+SeaBIOS offers no INT 13h extensions for a floppy, which is exactly why the fallback is
+not sentimentality: without it the regression path would die the moment the LBA path was
+added.
+
+### What the truncated-image test found
+
+Three sizes were tried, and the middle one is the useful one:
+
+| Truncated to | Behaviour |
+|---|---|
+| 16 sectors (8 KB) | the firmware rejects the device outright - the boot sector never runs, log empty |
+| 32 sectors (16 KB) | boots, reports `L`, then `ANVIL: disk read failed` and halts cleanly |
+| 64 sectors (32 KB) | boots, reports `L`, and the read past the end **succeeded with zeros** |
+
+The third row is the finding worth keeping. A read past the end of a USB mass storage
+device can return zeros rather than reporting failure, so a loader that trusts every read
+will happily jump into a 32 KB block of zeroes. That is precisely why `blk_read_sector()`
+bounds-checks against the reported capacity instead of trusting the device to complain.
+
+### Order of work
+
+1. Support probe and LBA path in `stage1.asm`, CHS kept as fallback, `L`/`C` emitted to
+   COM1. **Done.**
+2. `run_vm_usb.bat` with `bootindex=0` so the result does not depend on enumeration order.
+   **Done.**
+3. `verify.py` asserts the marker, and `--require-lba` for strict configurations. **Done.**
+4. Truncated-image negative test. **Done, and it taught us something.**
+5. M15 (self-install) is now unblocked.

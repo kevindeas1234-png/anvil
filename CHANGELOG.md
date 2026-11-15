@@ -10,6 +10,11 @@ versions follow [Semantic Versioning](https://semver.org/).
   at `LBA 16 + i*4`, a superblock at `LBA 0` holding the committed count, per-record FNV-1a,
   and a commit ordering that makes an uncommitted record harmless. `verify.py` compares four
   hashes against `tools/rawstore_check.py`, an independent implementation written first.
+- **M14: geometry-independent boot.** `stage1.asm` probes for INT 13h extensions and reads
+the kernel by LBA when they exist, falling back to the old CHS arithmetic when they do not.
+The path taken is announced on COM1 as `L` or `C`, so a log states how it booted instead of
+leaving it to be assumed. The same image now boots as a floppy (`C`) and as a USB mass
+storage device (`L`), reaching identical store hashes. New: `run_vm_usb.bat`.
 - `CREDITS.md` — contributors, and a precise statement of what the record does and does not
   prove.
 - `DRIVER-LIST.md` — why one machine's driver inventory is a fingerprint, not a plan, and

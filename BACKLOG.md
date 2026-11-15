@@ -90,7 +90,7 @@ identical bytes. Reference verifier: `py tools\rawstore_check.py --selftest`.
 the host — because `format` left the reserved sectors holding the previous disk contents.
 Fixed by zeroing them. A self-check would have agreed with itself.
 
-### [ ] M14 — boot from a disk that has it (geometry-independent boot)
+### [x] M14 — boot from a disk that has it (geometry-independent boot)
 `stage1.asm` reads the kernel with floppy CHS arithmetic (18 sectors/track, 2 heads), so the
 same bytes cannot boot from a USB stick or a hard disk. Replace it with INT 13h LBA reads
 (AH=42h), keeping the CHS loop as a fallback for any drive whose BIOS lacks extensions.
@@ -108,3 +108,10 @@ installer is possible.
 **No USB hardware required.** QEMU presents a file as a USB mass storage device, which tests
 the thing that is actually in question — geometry independence. Real firmware compatibility
 is a separate, parked concern.
+
+**Passed 2026-11-15:** floppy boot reports marker `C` (SeaBIOS offers no INT 13h extensions
+for a floppy) and reaches milestone 10; the same image as USB mass storage reports `L` and
+reaches milestone 10 with an identical `store: region fnv=0x50370dfe`. Truncating the medium
+to 16 KB produces `ANVIL: disk read failed` and a clean halt. At 32 KB the overrun read
+*succeeded with zeros* instead of failing - which is why reads are bounds-checked against
+capacity rather than trusting the device to complain.

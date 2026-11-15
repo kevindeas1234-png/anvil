@@ -151,7 +151,7 @@ def newest_log(base: str) -> str | None:
     return max(logs, key=os.path.getmtime) if logs else None
 
 
-def check(path: str) -> bool:
+def check(path: str, require_lba: bool = False) -> bool:
     print(f"\n{path}")
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
@@ -190,6 +190,25 @@ def check(path: str) -> bool:
     print(f"  milestone detected: {milestone}")
 
     ok = True
+
+    # M14: stage1 announces how it loaded the kernel, on COM1, before anything
+    # else. A boot loader that merely claims to have used LBA reads is worth
+    # nothing; this is the claim written into the log.
+    marker = None
+    for line in text.splitlines():
+        if line.strip() in ("L", "C"):
+            marker = line.strip()
+            break
+    if marker is None:
+        print("  [FAIL] no boot-path marker (expected 'L' or 'C' on the first line)")
+        ok = False
+    else:
+        label = "extended LBA reads" if marker == "L" else "CHS fallback"
+        print(f"  [PASS] boot path marker {marker!r} ({label})")
+        if require_lba and marker != "L":
+            print("  [FAIL] this configuration must use extended LBA reads, "
+                  "but the guest fell back to CHS - geometry is still a dependency")
+            ok = False
 
     def require(markers: tuple[str, ...]) -> None:
         nonlocal ok
@@ -337,6 +356,8 @@ def check(path: str) -> bool:
 
 def main(argv: list[str]) -> int:
     here = os.path.dirname(os.path.abspath(__file__))
+    require_lba = "--require-lba" in argv
+    argv = [item for item in argv if item != "--require-lba"]
     if argv:
         paths = argv
     else:
@@ -348,7 +369,7 @@ def main(argv: list[str]) -> int:
         print("Run run_vm.bat first.")
         return 2
 
-    passed = all([check(path) for path in paths])
+    passed = all([check(path, require_lba) for path in paths])
     print("\nRESULT:", "PASS" if passed else "FAIL")
     return 0 if passed else 1
 

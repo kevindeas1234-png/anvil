@@ -44,6 +44,7 @@ The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot
 | virtio-blk write + read-back | pattern written to sector 1, buffer cleared, read back, hash matches |
 | Arbitrary-LBA read | LBA 2048 hashed in the guest, compared with the host |
 | Raw record store | 64 records on a bare disk with no partition table and no filesystem; the whole committed region hashed in the guest and matched against an independent host implementation |
+| Boots from floppy **and** USB/disk | the same image boots from both; the boot sector prints `L` (extended LBA reads) or `C` (CHS fallback) to the serial log, so how it loaded is recorded, not assumed |
 
 The point of the last four is that **the guest's claim and the host's measurement are
 compared**. A kernel that prints "disk OK" proves nothing; one whose hash has to match a
@@ -66,6 +67,7 @@ Place NASM in `tools\nasm\nasm.exe` and Zig in `tools\zig\zig.exe`, or put both 
 ```
 build.bat        # assemble, compile, link, package images\anvil.img
 run_vm.bat       # boot it headless with the serial log going to logs\
+run_vm_usb.bat   # the same image, attached as a USB mass storage device
 test.bat         # build + boot + verify, and print RESULT: PASS/FAIL
 ```
 
@@ -115,6 +117,7 @@ time:
 kernel/     stage1.asm entry.asm isr.asm kernel.c virtio.c store.c linker.ld
 tools/      mkimage.py mkdisk.py verify.py history.py rawstore_check.py
 M10-RAWSTORE.md          the on-disk format, commit protocol and pass condition
+M14-BOOT.md              how the boot sector loads from a floppy, a stick or a disk
 build.bat   run_vm.bat   test.bat   run_vm_debug.bat
 HANDOVER.md BACKLOG.md   notes on state and what comes next
 DRIVER-LIST.md           why there are no drivers, and how to compile your own list
