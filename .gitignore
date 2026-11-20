@@ -23,3 +23,6 @@ __pycache__/
 Lm studio tokens/
 _out.txt
 _err.txt
+
+# report.bat writes its captured run output here
+reports/
