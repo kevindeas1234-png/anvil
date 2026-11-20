@@ -1,0 +1,149 @@
+[AOS] root : /d/OS
+[AOS] nasm : /d/OS/tools/nasm/nasm.exe
+[AOS] zig  : /d/OS/tools/zig/zig.exe
+[AOS] qemu : /c/Program Files/qemu/qemu-system-x86_64.exe
+[AOS] py   : /c/Users/kevin/AppData/Local/Microsoft/WindowsApps/py
+       zig version 0.13.0
+       python 3.15.1
+[AOS] 1/6 boot sector
+[AOS] 2/6 kernel entry
+[AOS] 3/6 interrupt stubs
+[AOS] 4/6 compiling C
+[AOS] 5/6 linking at 0x10000
+[AOS] 6/6 flattening and packaging
+[mkimage] boot=512 kernel=26624 image=1474560 free_in_kernel_area=6144
+[AOS] built images/anvil.img
+[AOS] booting (snapshot, no NIC, no display, 256 MB)
+[AOS] verifying logs/report.log
+
+D:/OS/logs/report.log
+  --- log ---
+  | C
+  | A
+  | B
+  | C
+  | D
+  | E
+  | ANVIL KERNEL ONLINE
+  | anvil: started
+  | anvil: serial online
+  | memory: 639 KB conventional
+  | protected mode: 32-bit
+  | idt: ready
+  | pic: remapped
+  | pit: started
+  | e820: 7 entries, 255 MB usable
+  | paging: enabled
+  | paging: remap verified
+  | heap: arena 1024 KB at 0x00200000
+  | heap: alloc/free ok
+  | virtio: probing pci
+  | virtio: found at 0:3.0 id=0x00001001
+  | virtio: io=0x0000c000 cfg=0xfebf1000
+  | virtio: capacity lo=16384 hi=0
+  | virtio: qsize=256 desc=0x00120000 used=0x00122000
+  | virtio: sector0 fnv=0x206ce5e2
+  | virtio: sector1 written
+  | virtio: writeback fnv=0xe161b9c5 roundtrip ok
+  | virtio: sector2048 fnv=0xe7b1b310
+  | store: policy invalid (defaults)
+  | store: formatted 4092 slots
+  | store: pack runs   1024 -> 10 bytes (packed), wrote 512, roundtrip ok
+  | store: pack noise  1024 -> 1024 bytes (plain), wrote 1024, roundtrip ok
+  | store: pack verdict runs packed, noise plain
+  | store: appended 64, count=64
+  | store: moved 352 sectors, 352 requests
+  | store: rec0 fnv=0x23f9753d
+  | store: rec63 fnv=0x2976596b
+  | store: verify ok 64/64
+  | store: superblock fnv=0x661fc21c
+  | store: region fnv=0x50370dfe
+  | store: orphan ignored
+  | store: verify FAIL rec 32
+  | store: verify ok 64/64
+  | store: out of range 64
+  | store: full 4092
+  | store: last sector lba_lo=16383 lba_hi=0 fnv=0x4d7705c5
+  | store: replay identical
+  | tick 1
+  | tick 2
+  | tick 3
+  | tick 4
+  | tick 5
+  | tick 6
+  | tick 7
+  | tick 8
+  | tick 9
+  | tick 10
+  | AOS TICK TEST COMPLETE
+  | 
+  | ANVIL shell ready. type 'help'
+  | anvil> 
+  | fault test: raising #UD
+  | exception 0x00000006 eip=0x0001367e err=0x00000000 handled
+  | panic: vector=0x00000006 invalid opcode
+  | panic: eip=0x0001367e err=0x00000000
+  | panic: recent output
+  |   | tick 7
+  |   | tick 8
+  |   | tick 9
+  |   | tick 10
+  |   | AOS TICK TEST COMPLETE
+  |   | 
+  |   | ANVIL shell ready. type 'help'
+  |   | anvil> 
+  |   | fault test: raising #UD
+  |   | exception 0x00000006 eip=0x0001367e err=0x00000000 handled
+  |   | panic: vector=0x00000006 invalid opcode
+  |   | panic: eip=0x0001367e err=0x00000000
+  | panic: halted
+  -----------
+  last stage marker: ' handled'
+  milestone detected: 10
+  [PASS] boot path marker 'C' (CHS fallback)
+  [PASS] 'ANVIL KERNEL ONLINE'
+  [PASS] 'anvil: started'
+  [PASS] 'anvil: serial online'
+  [PASS] 'e820: '
+  [PASS] 'paging: enabled'
+  [PASS] 'paging: remap verified'
+  [PASS] 'heap: alloc/free ok'
+  ticks observed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  [PASS] ticks 1..10 in order
+  [PASS] 'fault test: raising #UD'
+  [PASS] 'exception 0x'
+  [PASS] ' handled'
+  [PASS] 'panic: vector=0x'
+  [PASS] 'panic: recent output'
+  [PASS] 'panic: halted'
+  [PASS] panic vector reported: 0x00000006
+  [PASS] 'store: pack runs   '
+  [PASS] '(packed), wrote '
+  [PASS] 'store: pack noise  '
+  [PASS] '(plain), wrote '
+  [PASS] 'store: pack verdict runs packed, noise plain'
+  [PASS] compressible wrote 512 bytes (10 packed) vs 1024 plain
+  [PASS] 'store: formatted '
+  [PASS] 'store: appended 64, count=64'
+  [PASS] 'store: verify ok 64/64'
+  [PASS] 'store: orphan ignored'
+  [PASS] 'store: verify FAIL rec 32'
+  [PASS] 'store: out of range 64'
+  [PASS] 'store: full 4092'
+  [PASS] 'store: replay identical'
+  [PASS] rec0 0x23f9753d (host expects 0x23f9753d)
+  [PASS] rec63 0x2976596b (host expects 0x2976596b)
+  [PASS] superblock 0x661fc21c (host expects 0x661fc21c)
+  [PASS] region 0x50370dfe (host expects 0x50370dfe)
+  [PASS] 'virtio: found at'
+  [PASS] 'virtio: sector0 fnv='
+  [PASS] sector0 0x206ce5e2 (host expects 0x206ce5e2)
+  [PASS] 'virtio: sector1 written'
+  [PASS] 'virtio: writeback fnv='
+  [PASS] 'roundtrip ok'
+  [PASS] writeback 0xe161b9c5 (host expects 0xe161b9c5)
+  [PASS] 'virtio: sector2048 fnv='
+  [PASS] lba 2048: 0xe7b1b310 (host expects 0xe7b1b310)
+
+RESULT: PASS
+[AOS] RESULT: PASS

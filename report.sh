@@ -3,31 +3,38 @@
 #
 #   ./report.sh          build, boot, verify, summarise
 #
-# It runs test.sh (or reports why it could not), then prints only the handful of
-# lines worth comparing between machines. Nothing is uploaded anywhere.
+# If the test fails, the output that says WHY is printed instead of a summary.
+# The first version discarded everything and reported only "no serial log",
+# which hid the real reason and cost a debugging round trip on a second machine.
 set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOG="$HERE/logs/report.log"
+RUNLOG="$HERE/reports/report-run.txt"
+mkdir -p "$HERE/reports"
 
 echo "running the test..."
-( cd "$HERE" && ./test.sh report >/dev/null 2>&1 ) || true
+( cd "$HERE" && ./test.sh report ) > "$RUNLOG" 2>&1 || true
 
 if [ ! -f "$LOG" ]; then
+    echo
     echo "--- COPY FROM HERE ---"
-    echo "no serial log was produced - the emulator never booted"
+    echo "The test produced no serial log. What it said:"
+    echo
+    cat "$RUNLOG"
     echo "--- TO HERE ---"
     exit 1
 fi
 
-region=$(grep -o 'store: region fnv=0x[0-9a-f]*' "$LOG" | tail -1 | cut -d= -f2)
-result=$(grep -c 'store: replay identical' "$LOG" >/dev/null 2>&1 && echo PASS || echo UNKNOWN)
-cpus=$( (grep -m1 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null) | cut -d: -f2- | sed 's/^ *//')
-osname=$(uname -srm 2>/dev/null)
+if ! grep -q 'store: replay identical' "$LOG"; then
+    echo
+    echo "--- COPY FROM HERE ---"
+    echo "The test ran but produced no completed run. Last 20 log lines:"
+    echo
+    tail -20 "$LOG"
+    echo "--- TO HERE ---"
+    exit 1
+fi
 
-echo
-echo "--- COPY FROM HERE ---"
-echo "machine : ${osname:-unknown}"
-echo "cpu     : ${cpus:-unknown}"
 have() { command -v "$1" >/dev/null 2>&1; }
 pyver() {
     for c in python3 python py; do
@@ -42,20 +49,25 @@ toolver() {  # label, candidate, version-args...
     for c in "$cand" "$HERE/tools/$cand/$cand" "$HERE/tools/$cand/$cand.exe"; do
         if [ -x "$c" ] || have "$c"; then
             v=$("$c" "$@" 2>/dev/null | head -1)
-            [ -n "$v" ] && { printf '%s: %s
-' "$label" "$v"; return; }
+            [ -n "$v" ] && { printf '%s: %s\n' "$label" "$v"; return; }
         fi
     done
-    printf '%s: not found
-' "$label"
+    printf '%s: not found on PATH - a bundled copy in tools/ may still be used\n' "$label"
 }
-printf 'python  : '; pyver
+
+region=$(grep -o 'store: region fnv=0x[0-9a-f]*' "$LOG" | tail -1 | cut -d= -f2)
+
+echo
+echo "--- COPY FROM HERE ---"
+echo "machine   : $(uname -srm 2>/dev/null || echo unknown)"
+echo "cpu       : $((grep -m1 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null) | cut -d: -f2- | sed 's/^ *//')"
+printf 'python    : '; pyver
 toolver zig zig version
 toolver nasm nasm -v
 toolver qemu qemu-system-x86_64 --version
-echo "milestone: $(grep -o 'replay identical' "$LOG" >/dev/null 2>&1 && echo 10 || echo 'not reached')"
-echo "region  : ${region:-none}"
-echo "result  : ${result}"
+echo "milestone : 10"
+echo "region    : ${region:-none}"
+echo "result    : PASS"
 echo "--- TO HERE ---"
 echo
-echo "This machine's region hash compared with 0x50370dfe is the whole test."
+echo "Compare the region hash with 0x50370dfe. That is the whole test."
