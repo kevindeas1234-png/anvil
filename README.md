@@ -156,6 +156,21 @@ SHA256 after:   3F91362899BD391C...  testdisk.img    <- unchanged
 
 The write really happened inside the VM and left no trace on the host file.
 
+## Scope
+
+ANVIL works in sectors. There is no partition table parser, no concept of a mounted volume,
+and no write protection: a write request goes to the disk the kernel was given.
+
+In practice the harness keeps this bounded. `run_vm.bat` attaches two file-backed images and
+passes `-snapshot`, so guest writes are discarded when the VM exits — the image hashes are
+identical before and after a run in which the guest writes a sector.
+
+Both of those are properties of the launcher rather than of the kernel, so they are the parts
+to keep intact if you adapt the harness or point it at different hardware.
+
+Published as-is; the licence terms in `LICENSE` apply. [`SECURITY.md`](SECURITY.md) lists the
+exposures in full, and how to report a problem.
+
 ## What it deliberately does not do
 
 Stated plainly, because a kernel README that implies more than it does wastes everyone's
