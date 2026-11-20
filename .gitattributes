@@ -4,6 +4,10 @@
 # cmd.exe misreads batch files without CRLF.
 *.bat text eol=crlf
 
+# A shell script must not carry CR: a CRLF shebang fails on Linux and macOS
+# with bad interpreter - and those are the platforms this harness exists for.
+*.sh text eol=lf
+
 # Never touch binaries or generated artefacts.
 *.img binary
 *.zip binary
