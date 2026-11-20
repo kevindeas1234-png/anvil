@@ -42,6 +42,9 @@ A kernel whose performance depends on its own judgement had better be verifiable
 
 ### The result so far
 
+**Verified on two machines.** The same source, built on a different CPU and motherboard, produces byte-identical images and the same hashes — including `store: region fnv=0x50370dfe`. The verification chain is host-independent, not an artefact of one machine.
+
+
 Policy is data, not code: a 16-byte table in the device's last sector decides chunk size and
 commit cadence. Three policies, one unchanged test suite:
 
