@@ -13,6 +13,11 @@ echo [0/3] snapshotting the source tree
 set "PYEXE=py"
 where py.exe >nul 2>nul
 if errorlevel 1 set "PYEXE=python"
+rem Point the snapshot at THIS tree. history.py defaults to D:\OS, which is where
+rem it was written; on any other machine that produced a confusing
+rem "root not found: D:\OS" before the build had even started.
+set "ANVIL_ROOT=%OSROOT:~0,-1%"
+set "ANVIL_LOG_DIR=%OSROOT%logs"
 "%PYEXE%" "%OSROOT%tools\history.py" --snapshot --reason "pre-test"
 
 echo.
