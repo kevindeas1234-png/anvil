@@ -1,6 +1,6 @@
 # M17 — close the loop: something proposes a policy, the verifier judges it
 
-**Status:** specified, not implemented.
+**Status:** implemented, passing. `py tools\policy_loop.py`.
 **Depends on:** M16 (policy is data; measurements exist).
 **Answers:** charter directive 5 — that management improves as the intelligence directing it
 improves.
@@ -77,3 +77,51 @@ that it can refuse.
 4. Write the decision record next to the logs, append-only.
 5. Then M11 (compression policy) plugs into the same loop, with a third cost metric: bytes
    written.
+
+## Result
+
+Two consecutive runs, identical both times:
+
+```
+baseline         invalid (defaults)   sectors=352  requests=352  region=0x50370dfe  PASS
+chunk4_flush8    chunk=4 flush=8      sectors=296  requests=104                    ACCEPTED
+chunk1_flush16   chunk=1 flush=16     sectors=292  requests=292                    ACCEPTED
+chunk2_flush32   chunk=2 flush=32     sectors=290  requests=162                    ACCEPTED
+same_as_baseline chunk=1 flush=1      sectors=352  requests=352  REJECTED (not strictly cheaper)
+corrupt_table    invalid (defaults)   sectors=352  requests=352  REJECTED (not strictly cheaper)
+```
+
+**3 accepted, 2 rejected, one region hash throughout.** The loop finishes by leaving the
+winning policy on the disk, so the next run starts from the result rather than from scratch.
+
+The rejections are the part worth keeping: a policy identical to the baseline is refused for
+not being *strictly* cheaper, and a corrupted table falls back to the kernel's defaults and is
+refused for the same reason. A loop that only ever accepts is a rubber stamp; this one
+demonstrably says no.
+
+The decision record is append-only, outside the kernel, one line per candidate:
+`D:\AOS_Logs\policy_loop.log`.
+
+## Two harness defects this exposed
+
+**`run_vm.bat` could return before the guest had finished.** Its watchdog treated "QEMU not
+seen yet" as "QEMU has exited" — so during start-up, before the process appeared, the batch
+concluded the run was over, printed a partial log, and returned while QEMU was still writing.
+Every automated test that read the log immediately afterwards was racing it. Fixed: the
+watchdog now waits for the process to *appear* before believing it has gone, and pauses once
+more after killing it.
+
+**The loop read the log mid-flush.** Even with the watchdog fixed, the serial file can still
+be settling when the batch returns, which produced a truncated log and a verification failure
+that belonged to the tool, not the kernel. `wait_for_stable()` now waits until the size stops
+changing.
+
+Both were invisible while runs were done by hand and only surfaced once something automated
+called them in a loop — which is an argument for automating, made by automating.
+
+## What this proves, and what it does not
+
+It proves that a proposal can be accepted only on identical output and strictly lower cost,
+and that refusal works. It does not prove that a *model* would propose well: today's proposer
+is a fixed candidate list. Swapping in a model changes one function and nothing else, which
+was the design goal.

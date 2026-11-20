@@ -107,6 +107,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--pack-threshold", type=int, default=0)
     parser.add_argument("--reserved", type=int, default=0,
                         help="kernel test selector: 13 asks the fault test to raise #GP")
+    parser.add_argument("--corrupt", action="store_true",
+                        help="write a table with a broken checksum, to test the fallback")
     parser.add_argument("--clear", action="store_true")
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--selfcheck", action="store_true")
@@ -116,6 +118,12 @@ def main(argv: list[str]) -> int:
         return selfcheck()
     if args.show:
         return show(args.image)
+    if args.corrupt:
+        block = bytearray(build(args.chunk, args.flush, args.pack_threshold, args.reserved))
+        block[16] ^= 0xFF          # break the FNV over the header
+        code = write(args.image, bytes(block))
+        print(f"[policy] corrupted table written to {args.image} (checksum deliberately wrong)")
+        return code
     if args.clear:
         code = write(args.image, bytes(SECTOR))
         print(f"[policy] cleared in {args.image}")

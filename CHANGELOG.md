@@ -6,6 +6,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **M17: the closed loop.** `tools/policy_loop.py` measures a baseline, proposes
+  policies, and keeps one only if the output is byte-identical and the cost strictly
+  lower. Three accepted (down to 290 sectors from 352), two refused, identical region
+  hash throughout, decisions recorded append-only. The proposer is a candidate list
+  today; swapping in a model changes one function.
 - **M10: a raw record store with no partition table and no filesystem.** Fixed-size records
   at `LBA 16 + i*4`, a superblock at `LBA 0` holding the committed count, per-record FNV-1a,
   and a commit ordering that makes an uncommitted record harmless. `verify.py` compares four
@@ -39,6 +44,9 @@ fewer sectors, `chunk=4` issues 70% fewer requests. New: `tools/setpolicy.py`,
   past 16 KB. The two constants must always change as a pair.
 
 ### Fixed
+- `run_vm.bat` could return before the guest finished writing: its watchdog treated
+  "QEMU not seen yet" as "QEMU has exited", so a caller reading the log immediately
+  got a truncated one. It now waits for the process to appear first.
 - `store_format()` left the reserved sectors holding whatever was on the disk beforehand, so
   the region hash depended on the disk's history rather than on the formatter. Caught by the
   host disagreeing with the guest; fixed by zeroing the reserved area.

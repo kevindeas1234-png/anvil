@@ -56,13 +56,24 @@ start "" /b "%QEMU%" ^
  -device isa-debug-exit,iobase=0x501,iosize=0x04 -m 256 -no-reboot
 
 set /a WAITED=0
+set SEEN=0
 :watch
 ping -n 2 127.0.0.1 >nul 2>nul
-tasklist /fi "imagename eq qemu-system-x86_64.exe" | find /i "qemu-system" >nul 2>nul
-if errorlevel 1 goto stopped
 set /a WAITED+=1
+tasklist /fi "imagename eq qemu-system-x86_64.exe" | find /i "qemu-system" >nul 2>nul
+if errorlevel 1 goto notseen
+set SEEN=1
 if %WAITED% lss 10 goto watch
 taskkill /IM qemu-system-x86_64.exe /F >nul 2>nul
+goto settled
+:notseen
+rem Not seeing QEMU yet is not the same as QEMU having finished: at start-up the
+rem process may not have appeared, and treating that as "it exited" lets the batch
+rem return while the guest is still writing, so the caller reads a half-written
+rem serial log. Wait for it to appear before believing it has gone.
+if %SEEN%==0 if %WAITED% lss 3 goto watch
+:settled
+ping -n 2 127.0.0.1 >nul 2>nul
 :stopped
 
 echo.

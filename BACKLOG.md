@@ -141,7 +141,7 @@ against 352. Byte-identical output, 17% fewer sectors, 70% fewer requests.
 Two defects found while building it: the policy table had to move out of the hashed region
 (at LBA 1 every policy changed the hash), and `format`'s writes were not being counted, which
 under-reported the baseline as 322 instead of 352.
-### [ ] M17 — close the loop: propose a policy, let the verifier judge it
+### [x] M17 — close the loop: propose a policy, let the verifier judge it
 M16 built the seam but a script still writes the policy by hand, so "better judgement produces
 a better machine" has been made possible, never tested. This closes the loop: measure baseline,
 propose, run, and keep a proposal only if the output is byte-identical and the cost is strictly
@@ -174,3 +174,13 @@ its own output (fixed with a quiet flag), and the new vector assertion sat in a 
 milestone-10 logs never reach, so a wrong expected vector passed silently.
 
 **This closes condition 4 of the publishing bar** in `CHARTER.md`.
+
+**Passed 2026-11-20:** `py tools\policy_loop.py` measures the baseline, then judges five
+proposals. Three were accepted (`chunk4_flush8` 296/104, `chunk1_flush16` 292/292,
+`chunk2_flush32` 290/162) and two refused (an identical policy, and a corrupted table that
+fell back to defaults) — every acceptance with an unchanged region hash `0x50370dfe`.
+Repeatable across two runs; decisions recorded append-only in `D:\AOS_Logs\policy_loop.log`.
+
+**Found while building it:** `run_vm.bat` returned before the guest finished writing (its
+watchdog read "not started yet" as "already exited"), so anything that read the log
+immediately was racing it. Fixed, plus a stability wait in the loop.

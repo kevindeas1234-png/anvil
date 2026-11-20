@@ -54,13 +54,24 @@ rem ("Input redirection is not supported"), so a scheduled task or an agent run
 rem would skip the wait entirely, kill the VM at once and log nothing. ping is
 rem used as the clock instead, because it works with no console attached.
 set /a WAITED=0
+set SEEN=0
 :watch
 ping -n 2 127.0.0.1 >nul 2>nul
-tasklist /fi "imagename eq qemu-system-x86_64.exe" | find /i "qemu-system" >nul 2>nul
-if errorlevel 1 goto stopped
 set /a WAITED+=1
-if %WAITED% lss 8 goto watch
+tasklist /fi "imagename eq qemu-system-x86_64.exe" | find /i "qemu-system" >nul 2>nul
+if errorlevel 1 goto notseen
+set SEEN=1
+if %WAITED% lss 10 goto watch
 taskkill /IM qemu-system-x86_64.exe /F >nul 2>nul
+goto settled
+:notseen
+rem Not seeing QEMU yet is not the same as QEMU having finished: during start-up
+rem the process may not have appeared, and treating that as "it exited" lets the
+rem batch return while the guest is still writing - so the caller reads a
+rem half-written serial log. Wait for it to appear before believing it has gone.
+if %SEEN%==0 if %WAITED% lss 3 goto watch
+:settled
+ping -n 2 127.0.0.1 >nul 2>nul
 :stopped
 
 echo.
