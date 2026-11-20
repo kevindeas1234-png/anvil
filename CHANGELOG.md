@@ -6,6 +6,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **M11: pack or plain, decided by measurement.** The kernel run-length packs a
+  1024-byte block when the policy says it is worth it (10 bytes, 512 written) and
+  writes plain when it is not (1024 written), verifying both by FNV round trip.
+  Refusing to pack noise is asserted, so the decision cannot quietly stop happening.
 - **M17: the closed loop.** `tools/policy_loop.py` measures a baseline, proposes
   policies, and keeps one only if the output is byte-identical and the cost strictly
   lower. Three accepted (down to 290 sectors from 352), two refused, identical region

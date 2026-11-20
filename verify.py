@@ -43,6 +43,14 @@ M3_MARKERS = (
 )
 
 # M13: a fault must report what it was, where, and what the kernel had been doing.
+M11_MARKERS = (
+    "store: pack runs   ",
+    "(packed), wrote ",
+    "store: pack noise  ",
+    "(plain), wrote ",
+    "store: pack verdict runs packed, noise plain",
+)
+
 M13_MARKERS = (
     "panic: vector=0x",
     "panic: recent output",
@@ -308,6 +316,22 @@ def check(path: str, require_lba: bool = False,
         check_ticks()
         require(M3_MARKERS)
         check_panic()
+
+        if "store: pack" in text:
+            # M11: the pack/plain decision, proven by a round trip both ways.
+            require(M11_MARKERS)
+            m_runs = re.search(r"store: pack runs\s+1024 -> (\d+) bytes \(packed\), wrote (\d+)", text)
+            m_noise = re.search(r"store: pack noise\s+1024 -> (\d+) bytes \(plain\), wrote (\d+)", text)
+            if not m_runs or not m_noise:
+                print("  [FAIL] could not read the pack measurements")
+                ok = False
+            else:
+                packed_bytes, packed_wrote = int(m_runs.group(1)), int(m_runs.group(2))
+                noise_wrote = int(m_noise.group(2))
+                cheaper = packed_wrote < noise_wrote and packed_bytes < 1024
+                print(f"  [{'PASS' if cheaper else 'FAIL'}] compressible wrote {packed_wrote} bytes "
+                      f"({packed_bytes} packed) vs {noise_wrote} plain")
+                ok = ok and cheaper
 
         if "store: formatted" in text:
             # M10: records on the bare disk, no partition table, no filesystem.

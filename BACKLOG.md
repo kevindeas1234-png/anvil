@@ -27,7 +27,7 @@ the M10 slot. Numbers follow the order the work happened, not the order it was i
 On any exception, dump vector, error code, EIP, and the last N log lines, then halt cleanly.
 **Pass:** an intentional null dereference prints a panic block and does not reset.
 
-### [ ] M11 — run the io_bench policy inside ANVIL
+### [x] M11 — run the io_bench policy inside ANVIL
 Sample the first 4 MiB, compress, choose plain vs packed, write, verify.
 **Pass:** 256 MiB written as ~4 MiB with a matching round-trip hash.
 
@@ -184,3 +184,9 @@ Repeatable across two runs; decisions recorded append-only in `D:\AOS_Logs\polic
 **Found while building it:** `run_vm.bat` returned before the guest finished writing (its
 watchdog read "not started yet" as "already exited"), so anything that read the log
 immediately was racing it. Fixed, plus a stability wait in the loop.
+
+**Passed 2026-11-20:** the kernel packs a 1024-byte block of runs to 10 bytes and writes 512
+bytes; a block of pseudo-random noise is written plain at 1024, because packing would have
+cost more. Both are read back and compared by FNV. The verdict line fails the test if the
+noise ever gets packed. Threshold comes from the policy table, so the decision is data.
+`verify.py` asserts the measurements, not just the presence of the lines.

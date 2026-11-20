@@ -78,6 +78,7 @@ The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot
 | Arbitrary-LBA read | LBA 2048 hashed in the guest, compared with the host |
 | Raw record store | 64 records on a bare disk with no partition table and no filesystem; the whole committed region hashed in the guest and matched against an independent host implementation |
 | Faults explain themselves | vector by name, error code, and the last twelve lines printed — then a clean halt, never a silent reset |
+| Pack or plain, decided by measurement | 1024 bytes of runs → 10 packed (512 written); noise stays plain at 1024. Both verified by FNV, and packing noise fails the suite |
 | Boots from floppy **and** USB/disk | the same image boots from both; the boot sector prints `L` (extended LBA reads) or `C` (CHS fallback) to the serial log, so how it loaded is recorded, not assumed |
 
 The point of the last four is that **the guest's claim and the host's measurement are

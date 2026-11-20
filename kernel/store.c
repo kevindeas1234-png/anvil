@@ -32,6 +32,8 @@ extern void *memcpy(void *dest, const void *src, u32 count);
 extern int blk_read_sector(u64 lba, void *buffer);
 extern int blk_write_sector(u64 lba, const void *buffer);
 extern int blk_write_run(u64 lba, const void *buffer, u32 sectors);
+
+int store_pack_selftest(void);      /* defined below, called from store_selftest */
 extern u64 blk_capacity_sectors(void);
 extern int blk_present(void);
 
@@ -59,6 +61,7 @@ static u32 g_chunk = 1;        /* sectors per device request, 1..REC_SECTORS */
 static u32 g_flush = 1;        /* commit the superblock every N appends */
 static u32 g_sectors_moved;    /* every sector written, including commits */
 static u32 g_requests;         /* every device request issued */
+static u32 g_pack_threshold = 90;   /* pack only if it saves at least this much (%) */
 
 /* --- little-endian helpers ---------------------------------------------- */
 static void put_u32(u8 *p, u32 v)
@@ -200,6 +203,8 @@ static void policy_load(void)
     }
 
     g_chunk = (u32)pol[0x08] | ((u32)pol[0x09] << 8);
+    g_pack_threshold = (u32)pol[0x0C] | ((u32)pol[0x0D] << 8);
+    if (g_pack_threshold < 10 || g_pack_threshold > 100) g_pack_threshold = 90;
     g_flush = (u32)pol[0x0A] | ((u32)pol[0x0B] << 8);
 
     if (g_chunk < 1) g_chunk = 1;
@@ -436,6 +441,11 @@ int store_selftest(void)
             return -1;
         }
     }
+    if (store_pack_selftest() != 0) {
+        print("store: pack test failed\n");
+        return -1;
+    }
+
     if (store_flush() != 0) {
         print("store: flush failed\n");
         return -1;
@@ -581,4 +591,145 @@ int store_selftest(void)
 u32 store_fault_mode(void)
 {
     return pol[0x0E];
+}
+
+/* --- M11: pack or plain, decided by measurement -------------------------
+ * The decision is the interesting part, not the compressor. A run-length coder
+ * is used because it is short enough to audit, and its worst case is 2x - which
+ * makes the refusal real rather than theoretical: packing incompressible data
+ * costs twice as much, exactly as io_bench measured from the other direction.
+ */
+#define PACK_BLOCK 1024
+
+static u32 rle_pack(const u8 *in, u32 length, u8 *out, u32 cap)
+{
+    u32 i = 0, o = 0;
+
+    while (i < length) {
+        u8 byte = in[i];
+        u32 run = 1;
+
+        while (i + run < length && in[i + run] == byte && run < 255) run++;
+        if (o + 2 > cap) return 0;
+        out[o++] = (u8)run;
+        out[o++] = byte;
+        i += run;
+    }
+    return o;
+}
+
+static u32 rle_unpack(const u8 *in, u32 length, u8 *out, u32 cap)
+{
+    u32 i = 0, o = 0;
+
+    while (i + 1 < length) {
+        u32 run = in[i++];
+        u8 byte = in[i++];
+
+        if (run == 0 || o + run > cap) return 0;
+        while (run-- > 0) out[o++] = byte;
+    }
+    return o;
+}
+
+/* Pack or write plain, then read it back and prove the bytes survived. */
+static int pack_roundtrip(u32 lba, u32 *bytes_written, u32 *stored_size, u32 *packed_flag)
+{
+    u32 source_fnv = fnv1a(payload_buf, PACK_BLOCK);
+    u32 packed = rle_pack(payload_buf, PACK_BLOCK, rec, REC_SIZE);
+    u32 sectors;
+
+    if (packed > 0 && packed * 100u <= PACK_BLOCK * g_pack_threshold) {
+        *packed_flag = 1;
+        *stored_size = packed;
+        sectors = (packed + SECTOR - 1u) / SECTOR;
+    } else {
+        *packed_flag = 0;
+        *stored_size = PACK_BLOCK;
+        memcpy(rec, payload_buf, PACK_BLOCK);
+        sectors = PACK_BLOCK / SECTOR;
+    }
+    *bytes_written = sectors * SECTOR;
+
+    if (blk_write_run(lba, rec, sectors) != 0) return -1;
+
+    /* Read back everything that was written. Reading one sector and then
+     * comparing 1024 bytes compares half of it against stale buffer contents -
+     * which is exactly the bug this test found in itself. */
+    {
+        u32 s;
+
+        for (s = 0; s < sectors; s++) {
+            if (blk_read_sector(lba + s, spare + s * SECTOR) != 0) return -2;
+        }
+    }
+
+    if (*packed_flag) {
+        if (rle_unpack(spare, *stored_size, payload_buf, PACK_BLOCK) != PACK_BLOCK) return -3;
+    } else {
+        memcpy(payload_buf, spare, PACK_BLOCK);
+    }
+    if (fnv1a(payload_buf, PACK_BLOCK) != source_fnv) return -4;
+    return 0;
+}
+
+int store_pack_selftest(void)
+{
+    u32 i;
+    u32 bytes_a = 0, size_a = 0, bytes_b = 0, size_b = 0;
+    u32 packed_a = 0, packed_b = 0;
+    u32 state = 0x12345678u;
+
+    /* A: compressible - long runs of one byte */
+    for (i = 0; i < PACK_BLOCK; i++) payload_buf[i] = 0xAB;
+    if (pack_roundtrip(6144, &bytes_a, &size_a, &packed_a) != 0) {
+        print("store: pack test (runs) FAILED\n");
+        return -1;
+    }
+
+    /* B: incompressible - the generator the store already uses for records */
+    for (i = 0; i < PACK_BLOCK; i++) {
+        state = state * 1103515245u + 12345u;
+        payload_buf[i] = (u8)((state >> 16) & 0xFF);
+    }
+    if (pack_roundtrip(8192, &bytes_b, &size_b, &packed_b) != 0) {
+        print("store: pack test (noise) FAILED\n");
+        return -1;
+    }
+
+    print("store: pack runs   ");
+    put_dec(PACK_BLOCK);
+    print(" -> ");
+    put_dec(size_a);
+    print(" bytes (") ;
+    print(packed_a ? "packed" : "plain");
+    print("), wrote ");
+    put_dec(bytes_a);
+    print(", roundtrip ok\n");
+
+    print("store: pack noise  ");
+    put_dec(PACK_BLOCK);
+    print(" -> ");
+    put_dec(size_b);
+    print(" bytes (");
+    print(packed_b ? "packed" : "plain");
+    print("), wrote ");
+    put_dec(bytes_b);
+    print(", roundtrip ok\n");
+
+    print("store: pack verdict ");
+    if (!packed_a) {
+        print("compressible data was not packed - the decision never fires\n");
+        return -1;
+    }
+    if (packed_b) {
+        print("noise was packed too - the threshold is too permissive\n");
+        return -1;
+    }
+    if (bytes_a >= bytes_b) {
+        print("packing cost more than writing plain\n");
+        return -1;
+    }
+    print("runs packed, noise plain\n");
+    return 0;
 }
