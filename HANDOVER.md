@@ -10,7 +10,7 @@ Written 2026-10-27. Everything below is on disk; nothing depends on this chat.
 | io_bench | `D:\io_bench` | complete, MIT, findings in README |
 | AOS pipeline | `D:\AOS` | working, runs 1–2 archived |
 | Skills | global | `anvil-kernel`, `io-bench`, `aos-audit` |
-| Backlog | Linear (ANVIL / io_bench) + `D:\OS\BACKLOG.md` | 8 open issues |
+| Backlog | `BACKLOG.md`, with a pass condition per ticket | 4 open |
 
 ## The test
 
@@ -51,7 +51,7 @@ snapshot taken after a green test is the one worth restoring to.
 
 ## Next actions, in order
 
-1. Run `test.bat`; if green, close KEV-8 with the two hashes as evidence.
+1. Run `test.bat`; if green, the virtio write path is signed off by its two hashes.
 2. M9 — read an arbitrary sector (`blk_read(lba, buf)`), proof: sector 2048 hash.
 3. M10 — panic handler (vector, error, EIP) instead of a triple fault.
 4. io_bench: 1 GiB sustained run on both drives (burst figures are flattering).

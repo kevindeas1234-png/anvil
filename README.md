@@ -10,7 +10,8 @@ refuses to flatter it.
 
 ```
 $ test.bat
-milestone detected: 9
+milestone detected: 10
+[PASS] boot path marker 'C' (CHS fallback)
 [PASS] 'ANVIL KERNEL ONLINE'
 [PASS] 'e820: '
 [PASS] 'paging: enabled'
@@ -19,6 +20,10 @@ milestone detected: 9
 [PASS] ticks 1..10 in order
 [PASS] 'fault test: raising #UD'
 [PASS] 'exception 0x00000006'
+[PASS] 'panic: halted'
+[PASS] compressible wrote 512 bytes (10 packed) vs 1024 plain
+[PASS] rec0 0x23f9753d (host expects 0x23f9753d)
+[PASS] region 0x50370dfe (host expects 0x50370dfe)
 [PASS] sector0 0x206ce5e2 (host expects 0x206ce5e2)
 [PASS] writeback 0xe161b9c5 (host expects 0xe161b9c5)
 [PASS] lba 2048: 0xe7b1b310 (host expects 0xe7b1b310)
