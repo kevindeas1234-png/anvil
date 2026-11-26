@@ -8,6 +8,13 @@ independently on the host.
 It is not a usable operating system. It is a working kernel with a test harness that
 refuses to flatter it.
 
+![ANVIL booting, captured from the kernel's own VGA text console](docs/boot.gif)
+
+*Four seconds of the VM: SeaBIOS tries the hard disk, falls back to the floppy, the kernel
+initialises, runs its store tests, reaches the shell, then the deliberate `#UD` fault test
+ends in a handled panic. This is a capture of QEMU's display buffer via `tools/capture_boot.py`
+— the kernel's screen output, not a recording of a terminal window.*
+
 ```
 $ test.bat
 milestone detected: 10
@@ -81,6 +88,7 @@ The kernel is a flat binary loaded at `0x10000` by a two-stage boot sector. Boot
 | Kernel heap (1 MiB arena) | `heap: alloc/free ok` |
 | Interrupt stubs for all vectors | deliberate `#UD` is caught, `err`/`eip` reported, execution continues |
 | Serial shell | `ANVIL shell ready` |
+| VGA text console | every serial character is mirrored to `0xB8000`, so the VM has a screen; see `docs/boot.gif` |
 | virtio-blk read | FNV-1a of sector 0 matches the host's hash of the image |
 | virtio-blk write + read-back | pattern written to sector 1, buffer cleared, read back, hash matches |
 | Arbitrary-LBA read | LBA 2048 hashed in the guest, compared with the host |

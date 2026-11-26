@@ -163,10 +163,70 @@ static const char *vector_name(u32 vector)
     }
 }
 
-static void serial_putc(char c)
+/* --- VGA text console ---------------------------------------------------
+ * The serial log is the test artefact; this is for the humans watching the VM.
+ * Same characters, same order, written to the 80x25 text buffer at 0xB8000
+ * (the identity map covers it). Nothing here feeds back into the serial path,
+ * so what verify.py checks stays byte-for-byte unchanged.
+ */
+#define VGA_MEM   ((volatile u16 *)0xB8000)
+#define VGA_COLS  80
+#define VGA_ROWS  25
+#define VGA_ATTR  0x0F          /* white on black */
+
+static u32 vga_row;
+static u32 vga_col;
+
+static void vga_scroll(void)
+{
+    u32 i;
+    for (i = 0; i < (VGA_ROWS - 1) * VGA_COLS; i++)
+        VGA_MEM[i] = VGA_MEM[i + VGA_COLS];
+    for (i = (VGA_ROWS - 1) * VGA_COLS; i < VGA_ROWS * VGA_COLS; i++)
+        VGA_MEM[i] = (u16)((VGA_ATTR << 8) | ' ');
+}
+
+/* noinline matters here: serial_putc is called from every print/put_dec/put_hex
+ * call site in kmain and shell. Once it grew to include the VGA path the
+ * compiler inlined ~600 bytes of it into hundreds of sites and .text jumped
+ * from 24 KB to 98 KB. Keeping the console writers out of line costs a call
+ * per character and keeps the image inside the 32 KB boot window. */
+static void __attribute__((noinline)) vga_putc(char c)
+{
+    if (c == '\r') {
+        vga_col = 0;
+        return;
+    }
+    if (c == '\n') {
+        vga_col = 0;
+        vga_row++;
+    } else if (c == '\b') {
+        if (vga_col) vga_col--;
+        else if (vga_row) { vga_row--; vga_col = VGA_COLS - 1; }
+    } else {
+        VGA_MEM[vga_row * VGA_COLS + vga_col] = (u16)((VGA_ATTR << 8) | (u8)c);
+        if (++vga_col >= VGA_COLS) { vga_col = 0; vga_row++; }
+    }
+    while (vga_row >= VGA_ROWS) {
+        vga_scroll();
+        vga_row--;
+    }
+}
+
+static void vga_init(void)
+{
+    u32 i;
+    vga_row = 0;
+    vga_col = 0;
+    for (i = 0; i < VGA_ROWS * VGA_COLS; i++)
+        VGA_MEM[i] = (u16)((VGA_ATTR << 8) | ' ');
+}
+
+static void __attribute__((noinline)) serial_putc(char c)
 {
     while ((inb(COM1 + 5) & 0x20) == 0) { }
     outb(COM1, (u8)c);
+    vga_putc(c);
     panic_capture(c);
 }
 
@@ -598,6 +658,7 @@ void kmain(u32 boot_info_addr)
      * ticks, the IDT and tests_done all start from a known state. */
     for (cursor = __bss_start; cursor < __bss_end; cursor++) *cursor = 0;
 
+    vga_init();
     serial_init();
     print("ANVIL KERNEL ONLINE\r\n");
     print("anvil: started\r\n");

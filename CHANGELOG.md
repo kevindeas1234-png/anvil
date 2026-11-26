@@ -6,6 +6,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The kernel has a screen.** Every character `print` / `put_dec` / `put_hex` sends to COM1
+  is also mirrored to the 80x25 VGA text buffer at `0xB8000`, so the VM shows what it is doing
+  instead of a blank window. `tools/capture_boot.py` drives QEMU's monitor to screendump the
+  display and encodes the frames to PNG with nothing but zlib; `docs/boot.gif` is the result.
+  The serial path is untouched, so `verify.py` sees byte-identical output and every hash is
+  unchanged.
+
+  Codegen note, because it cost an hour: `serial_putc` and `vga_putc` now carry
+  `__attribute__((noinline))`. Once the console writer grew to include the VGA path, the
+  compiler inlined ~600 bytes of it into hundreds of `kmain` and `shell` call sites, taking
+  `.text` from 24 KB to 98 KB and overflowing the 32 KB boot window. `mkimage`'s size limit
+  caught it. Out of line, the kernel is 24,476 bytes - smaller than before the change.
 - **M11: pack or plain, decided by measurement.** The kernel run-length packs a
   1024-byte block when the policy says it is worth it (10 bytes, 512 written) and
   writes plain when it is not (1024 written), verifying both by FNV round trip.
