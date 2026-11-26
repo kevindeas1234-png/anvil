@@ -81,11 +81,31 @@ def case_missing_field(lines: list[str]) -> list[str]:
     raise SystemExit("no store.pack record in the log to strip a field from")
 
 
+def case_wrong_value(lines: list[str]) -> list[str]:
+    """A valid record carrying a wrong number.
+
+    This is the case that matters most: the checksum is repaired, the field set is
+    intact, the sequence is fine - everything structural passes. Only the
+    comparison against the host-computed hash can catch it.
+    """
+    out = list(lines)
+    for index in records(out):
+        head = out[index].rsplit(" chk=", 1)[0]
+        if "id=store.rec" in head and "index=0 " in head:
+            rewritten = re.sub(r"hash=0x[0-9a-f]{8}", "hash=0xdeadbeef", head, count=1)
+            if rewritten == head:
+                raise SystemExit("injection did not change the hash field")
+            out[index] = rebuild(rewritten)
+            return out
+    raise SystemExit("no store.rec index=0 record to corrupt")
+
+
 CASES = (
     ("checksum", case_checksum, "checksum does not match"),
     ("sequence", case_sequence, "sequence gap"),
     ("unknown", case_unknown_id, "unknown id"),
     ("field", case_missing_field, "missing"),
+    ("value", case_wrong_value, "host expects"),
 )
 
 

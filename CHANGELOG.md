@@ -3,6 +3,15 @@
 All notable changes to ANVIL. Format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **A fifth injection case: a valid record carrying a wrong number.** The four existing cases all
+  break structure — checksum, sequence, unknown id, missing field. This one repairs the checksum and
+  keeps the field set intact, so nothing structural can catch it; only the comparison against the
+  host-computed hash can. It is the case that proves the difference between format checking and
+  verification, and it is the one directive 19 actually demanded.
+
 ## [0.2.1] - 2026-11-26
 
 ### Fixed
