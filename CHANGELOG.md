@@ -6,6 +6,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Lessons moved from memory into things that run.** A session's judgement does not survive the
+  session, so each lesson is now attached to a mechanism instead of a paragraph:
+  - `tools\flake_check.py` boots the VM twice and compares the records, the exit codes and the failing
+    assertions. Determinism is a property worth asserting; the watchdog bug was previously caught only
+    by a human noticing that two runs disagreed.
+  - `verify.py` prints a `hint:` at the point of failure — after an early return, on a whole-log
+    checksum collapse (CRLF), on an emitter/registry mismatch, and on a log that stops after the tick
+    test. Knowledge where the failure is seen beats knowledge at the start of a session.
+  - `SYMPTOMS.md` in `D:\AOS` is keyed on **what you saw**, not on chronology: fifteen rows, each with
+    what it actually was and what now guards it. **Ten guarded, five unguarded** — and the unguarded
+    ones are the real backlog behind "check all we produce", separate from the 24%.
 - **A fifth injection case: a valid record carrying a wrong number.** The four existing cases all
   break structure — checksum, sequence, unknown id, missing field. This one repairs the checksum and
   keeps the field set intact, so nothing structural can catch it; only the comparison against the

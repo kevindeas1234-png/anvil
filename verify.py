@@ -196,6 +196,16 @@ EVT_FIELDS = {
 }
 
 
+def hint(text: str) -> None:
+    """Attach a lesson to the failure itself.
+
+    Knowledge printed where the failure appears beats knowledge read at the start
+    of a session, because the session that needs it is the one looking at this
+    output. Each string here was paid for once already; see SYMPTOMS.md.
+    """
+    print(f"  hint: {text}")
+
+
 def check_records(text: str, expect: dict | None) -> bool:
     """Validate the record stream. No silent skips: a gap, a bad checksum, an
     unknown id or a missing field all fail the run."""
@@ -205,6 +215,8 @@ def check_records(text: str, expect: dict | None) -> bool:
     if not lines:
         if "ANVIL shell ready" in text:
             print("  [FAIL] kernel reached the shell but emitted no event records")
+            hint("if this run went green before, suspect a call placed after an early "
+                 "return: the validation exists but is never reached (M20, 2026-11-26)")
             return False
         print("  [SKIP] no event records (log predates M20)")
         return True
@@ -212,6 +224,8 @@ def check_records(text: str, expect: dict | None) -> bool:
     records = []
     last_seq = 0
     problems = 0
+    checksum_failed = 0
+    unknown_ids = 0
 
     for number, line in enumerate(lines, 1):
         head = chk = match = None
@@ -227,6 +241,7 @@ def check_records(text: str, expect: dict | None) -> bool:
                 problem = "checksum is not 8 lowercase hex digits"
             elif fnv1a32(head.encode("ascii")) != int(chk, 16):
                 problem = "checksum does not match the line"
+                checksum_failed += 1
         if problem:
             print(f"  [FAIL] record {number} {problem}: {line[:70]!r}")
             ok = False
@@ -253,6 +268,7 @@ def check_records(text: str, expect: dict | None) -> bool:
             print(f"  [FAIL] record {number} has unknown id {rid!r}")
             ok = False
             problems += 1
+            unknown_ids += 1
             continue
         required = EVT_FIELDS[rid]
         missing = [key for key in required if key not in fields]
@@ -274,6 +290,12 @@ def check_records(text: str, expect: dict | None) -> bool:
     if not problems:
         print(f"  [PASS] {len(records)} records: checksums recomputed on the host, "
               f"sequence and fields valid")
+    if checksum_failed == len(lines):
+        hint("every record failed its checksum: a whole-log rewrite is the usual cause - "
+             "CRLF conversion, or a tool that stripped trailing spaces")
+    if unknown_ids:
+        hint("the emitter and EVT_FIELDS disagree: add the id to the registry, or the "
+             "kernel is emitting something the harness was never told about")
 
     # Values the host can compute for itself. These are the ones that count as
     # integrity rather than legibility: a guest cannot satisfy them by printing.
@@ -580,6 +602,10 @@ def check(path: str, require_lba: bool = False,
 
         if not ok and reached:
             print(f"  hint: execution got as far as {reached[-1]!r} and then stopped")
+        if "fault test: raising #UD" not in text and "AOS TICK TEST COMPLETE" in text:
+            hint("the log stops after the tick test: the guest may have been killed by "
+                 "the watchdog before it faulted. Check host load and the cap in "
+                 "run_vm.bat - a truncated log reads exactly like a kernel failure")
         return ok
 
     require(M0_MARKERS)
