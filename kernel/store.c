@@ -22,6 +22,8 @@ typedef unsigned char      u8;
 typedef unsigned int       u32;
 typedef unsigned long long u64;
 
+#include "evt.h"          /* M20: machine-readable event records */
+
 extern void print(const char *s);
 extern void put_dec(u32 value);
 extern void put_hex(u32 value);
@@ -411,6 +413,7 @@ int store_selftest(void)
     u32 first = 0;
     u32 hash0 = 0, hash63 = 0;
     u32 region_first = 0, region_second = 0;
+    u32 sb_hash = 0;
     u32 saved;
     int i;
 
@@ -469,6 +472,15 @@ int store_selftest(void)
     put_hex(hash63);
     print("\n");
 
+    evt_begin("store.rec");
+    evt_u32("index", 0);
+    evt_hex32("hash", hash0);
+    evt_end();
+    evt_begin("store.rec");
+    evt_u32("index", 63);
+    evt_hex32("hash", hash63);
+    evt_end();
+
     /* 5. verify every record */
     if (store_verify(&first) == 0) {
         print("store: verify ok ");
@@ -484,13 +496,21 @@ int store_selftest(void)
     }
 
     /* 6. superblock hash, and the hash of the whole committed region */
+    sb_hash = superblock_fnv();
     print("store: superblock fnv=0x");
-    put_hex(superblock_fnv());
+    put_hex(sb_hash);
     print("\n");
+    evt_begin("store.super");
+    evt_hex32("hash", sb_hash);
+    evt_end();
+
     region_first = region_fnv();
     print("store: region fnv=0x");
     put_hex(region_first);
     print("\n");
+    evt_begin("store.region");
+    evt_hex32("hash", region_first);
+    evt_end();
 
     /* 7. an orphan: write record 64 without committing it */
     payload_for(64, spare + HEADER_BYTES, MAX_PAYLOAD);
@@ -573,6 +593,9 @@ int store_selftest(void)
     region_second = region_fnv();
     if (region_second == region_first) {
         print("store: replay identical\n");
+        evt_begin("store.replay");
+        evt_u32("identical", 1);
+        evt_end();
     } else {
         print("store: replay DIFFERS 0x");
         put_hex(region_first);
@@ -716,6 +739,14 @@ int store_pack_selftest(void)
     print("), wrote ");
     put_dec(bytes_b);
     print(", roundtrip ok\n");
+
+    /* One record for the pair: the runs case is the one that must pack. */
+    evt_begin("store.pack");
+    evt_u32("bytes_in", PACK_BLOCK);
+    evt_u32("bytes_out", size_a);
+    evt_u32("writes", bytes_a);
+    evt_str("verdict", packed_a ? "packed" : "plain");
+    evt_end();
 
     print("store: pack verdict ");
     if (!packed_a) {

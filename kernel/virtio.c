@@ -29,6 +29,8 @@ typedef unsigned short     u16;
 typedef unsigned int       u32;
 typedef unsigned long long u64;
 
+#include "evt.h"          /* M20: machine-readable event records */
+
 extern void print(const char *s);
 extern void put_dec(u32 value);
 extern void put_hex(u32 value);
@@ -383,6 +385,10 @@ found:
         if (blk_request(st, VIRTIO_BLK_T_IN, 0, DATA_PHYS, 512) != 0) {
             return -1;
         }
+        evt_begin("virtio.read");
+        evt_u32("lba", 0);
+        evt_hex32("hash", fnv1a(read_buf, 512));
+        evt_end();
         print("virtio: sector0 fnv=0x");
         put_hex(fnv1a(read_buf, 512));
         print("\n");
@@ -405,6 +411,10 @@ found:
             }
         }
 
+        evt_begin("virtio.write");
+        evt_u32("lba", 1);
+        evt_hex32("hash", fnv1a(read_buf, 512));
+        evt_end();
         print("virtio: writeback fnv=0x");
         put_hex(fnv1a(read_buf, 512));
         print(same ? " roundtrip ok\n" : " ROUNDTRIP MISMATCH\n");

@@ -166,6 +166,156 @@ def newest_log(base: str) -> str | None:
     return max(logs, key=os.path.getmtime) if logs else None
 
 
+# --- M20: machine-readable event records --------------------------------
+#
+#   evt id=store.rec seq=8 index=0 hash=0x23f9753d chk=0xf7ef02f2
+#
+# These rules are deliberately stricter than the prose checks. Prose can be
+# reworded and the assertion silently stops testing anything; a record can only
+# be absent, malformed, or wrong - and all three are fatal here.
+
+EVT_HEAD = re.compile(r"^evt id=([a-z0-9]+(?:\.[a-z0-9]+)*) seq=([0-9]+)"
+                      r"((?: [a-z_]+=[A-Za-z0-9._:-]+)*)$")
+
+# Required fields per id. An unknown id is a failure, not something to ignore:
+# a silently dropped emitter is otherwise invisible.
+EVT_FIELDS = {
+    "boot.mem":     ("kb",),
+    "boot.e820":    ("entries", "usable_kb"),
+    "page.on":      ("verified",),
+    "heap.ok":      ("arena", "size_kb"),
+    "virtio.read":  ("lba", "hash"),
+    "virtio.write": ("lba", "hash"),
+    "store.pack":   ("bytes_in", "bytes_out", "writes", "verdict"),
+    "store.rec":    ("index", "hash"),
+    "store.region": ("hash",),
+    "store.super":  ("hash",),
+    "store.replay": ("identical",),
+    "panic":        ("vector", "eip", "err"),
+    "tick":         ("n",),
+}
+
+
+def check_records(text: str, expect: dict | None) -> bool:
+    """Validate the record stream. No silent skips: a gap, a bad checksum, an
+    unknown id or a missing field all fail the run."""
+    ok = True
+    lines = [line for line in text.splitlines() if line.startswith("evt ")]
+
+    if not lines:
+        if "ANVIL shell ready" in text:
+            print("  [FAIL] kernel reached the shell but emitted no event records")
+            return False
+        print("  [SKIP] no event records (log predates M20)")
+        return True
+
+    records = []
+    last_seq = 0
+    problems = 0
+
+    for number, line in enumerate(lines, 1):
+        head = chk = match = None
+        problem = None
+        if " chk=" not in line:
+            problem = "has no checksum"
+        else:
+            head, chk = line.rsplit(" chk=", 1)
+            match = EVT_HEAD.match(head)
+            if not match:
+                problem = "does not parse"
+            elif not re.fullmatch(r"0x[0-9a-f]{8}", chk):
+                problem = "checksum is not 8 lowercase hex digits"
+            elif fnv1a32(head.encode("ascii")) != int(chk, 16):
+                problem = "checksum does not match the line"
+        if problem:
+            print(f"  [FAIL] record {number} {problem}: {line[:70]!r}")
+            ok = False
+            problems += 1
+            continue
+
+        rid, seq, fields_text = match.group(1), int(match.group(2)), match.group(3)
+        fields = {}
+        for pair in fields_text.split():
+            key, value = pair.split("=", 1)
+            if key in fields:
+                print(f"  [FAIL] record {number} repeats field {key!r}")
+                ok = False
+                problems += 1
+            fields[key] = value
+
+        if seq != last_seq + 1:
+            print(f"  [FAIL] sequence gap: expected seq={last_seq + 1}, got {seq}")
+            ok = False
+            problems += 1
+        last_seq = seq
+
+        if rid not in EVT_FIELDS:
+            print(f"  [FAIL] record {number} has unknown id {rid!r}")
+            ok = False
+            problems += 1
+            continue
+        required = EVT_FIELDS[rid]
+        missing = [key for key in required if key not in fields]
+        extra = [key for key in fields if key not in required]
+        if missing:
+            print(f"  [FAIL] {rid} at seq={seq} missing {', '.join(missing)}")
+            ok = False
+            problems += 1
+        if extra:
+            print(f"  [FAIL] {rid} at seq={seq} has undeclared {', '.join(extra)}")
+            ok = False
+            problems += 1
+        records.append((rid, fields))
+
+    by_id: dict[str, list[dict]] = {}
+    for rid, fields in records:
+        by_id.setdefault(rid, []).append(fields)
+
+    if not problems:
+        print(f"  [PASS] {len(records)} records: checksums recomputed on the host, "
+              f"sequence and fields valid")
+
+    # Values the host can compute for itself. These are the ones that count as
+    # integrity rather than legibility: a guest cannot satisfy them by printing.
+    if expect:
+        wanted = (("store.rec", 0, "rec0"), ("store.rec", 63, "rec63"),
+                  ("store.super", None, "superblock"),
+                  ("store.region", None, "region"))
+        for rid, index, label in wanted:
+            seen = by_id.get(rid, [])
+            if index is not None:
+                seen = [f for f in seen if int(f.get("index", "-1")) == index]
+            elif rid in ("store.super", "store.region"):
+                seen = seen[:1]
+            if not seen:
+                print(f"  [FAIL] no {rid} record for {label}")
+                ok = False
+                continue
+            got = int(seen[0].get("hash", "0x0"), 16)
+            same = got == expect[label]
+            detail = f"index={index} " if index is not None else ""
+            print(f"  [{'PASS' if same else 'FAIL'}] record {rid} {detail}0x{got:08x} "
+                  f"(host expects 0x{expect[label]:08x})")
+            ok = ok and same
+
+    # Structural: ticks must arrive in order, and the panic record must agree
+    # with the prose. The second is self-consistency, not integrity - two guest
+    # outputs compared with each other prove only that they agree.
+    ticks = [int(f["n"]) for f in by_id.get("tick", [])]
+    if ticks:
+        ordered = ticks == list(range(1, len(ticks) + 1))
+        print(f"  [{'PASS' if ordered else 'FAIL'}] record ticks in order: {ticks[:12]}")
+        ok = ok and ordered
+
+    prose = re.search(r"panic: vector=0x([0-9a-fA-F]{8})", text)
+    if by_id.get("panic") and prose:
+        same = int(by_id["panic"][0]["vector"], 16) == int(prose.group(1), 16)
+        print(f"  [{'PASS' if same else 'FAIL'}] panic record agrees with the prose vector")
+        ok = ok and same
+
+    return ok
+
+
 def check(path: str, require_lba: bool = False,
           device_sectors: int = 0, no_device_hashes: bool = False,
           expect_panic_vector: int = -1) -> bool:
@@ -425,6 +575,8 @@ def check(path: str, require_lba: bool = False,
             else:
                 print("  [FAIL] no sector-2048 hash to check")
                 ok = False
+
+        ok = check_records(text, store_expectations() if milestone >= 10 else None) and ok
 
         if not ok and reached:
             print(f"  hint: execution got as far as {reached[-1]!r} and then stopped")

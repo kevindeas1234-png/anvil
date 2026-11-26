@@ -35,9 +35,9 @@ Sample the first 4 MiB, compress, choose plain vs packed, write, verify.
 Retry a failed request, reset the queue, log the failure.
 **Pass:** a deliberately truncated image produces a logged error, not a hang.
 
-### [ ] M20 — the kernel speaks to an agent, not to a reader
-Records instead of prose: `evt id=store.pack seq=41 bytes_in=1024 bytes_out=10 writes=512 hash=0x…`,
-asserted by `verify.py` on fields, with unknown ids, `seq` gaps and bad hashes all fatal.
+### [x] M20 — the kernel speaks to an agent, not to a reader
+Records instead of prose: `evt id=store.pack seq=41 bytes_in=1024 bytes_out=10 writes=512 chk=0x…`,
+asserted by `verify.py` on fields, with unknown ids, `seq` gaps and bad checksums all fatal.
 **Pass:** a corrupted record, a missing `seq` and an unknown `id` each make the suite FAIL.
 **Spec:** `M20-AGENT-INTERFACE.md`.
 

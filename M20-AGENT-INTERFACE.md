@@ -1,6 +1,6 @@
 # M20 — the kernel speaks to an agent, not to a reader
 
-**Status:** specification. Nothing implemented yet.
+**Status:** implemented, passing. `test.bat`, `py tools\evt_inject.py`.
 **Depends on:** M10 (record store), M13 (panic), the existing serial path.
 **Sandbox:** unchanged. `-snapshot`, file-backed images, no NIC, no real device.
 
@@ -42,17 +42,25 @@ One record per line, prefixed `evt `, fields as `key=value`, single spaces, prin
 quotes, no escaping.
 
 ```
-evt id=store.pack seq=41 bytes_in=1024 bytes_out=10 writes=512 verdict=packed hash=0x1a2b3c4d
+evt id=store.pack seq=41 bytes_in=1024 bytes_out=10 writes=512 verdict=packed chk=0x1a2b3c4d
 ```
 
 | Field | Type | Rule |
 |---|---|---|
 | `id` | dotted name | lowercase `[a-z0-9]+(\.[a-z0-9]+)+`, from the registered list |
 | `seq` | u32 decimal | strictly increasing by 1, starts at 1, no gaps |
-| `hash` | `0x` + 8 hex | FNV-1a 32 over the **bytes of the line up to, but not including, ` hash=`** |
+| `chk` | `0x` + 8 hex | FNV-1a 32 over the **bytes of the line up to, but not including, ` chk=`** |
 | others | per `id` | `[A-Za-z0-9._:-]{1,64}`, no spaces, no `=` |
 
-Everything after ` hash=` is the checksum and nothing else, so a truncated line cannot still verify.
+Everything after ` chk=` is the checksum and nothing else, so a truncated line cannot still verify.
+
+**Correction, found while implementing:** the checksum key was specified as `hash=`, which collides
+with the payload field `hash` on `virtio.read`, `virtio.write`, `store.rec`, `store.super` and
+`store.region`. The first record the kernel printed came out as
+`virtio.read lba=0 hash=0x206ce5e2 hash=0x100b3377` — two fields, one key, unparseable by the rule
+that says split at the last occurrence. It is now `chk=`. The grammar below is the corrected one;
+the collision is left in the record because a specification that was right first time would be the
+first one this project has produced.
 
 The hash covers the literal emitted bytes rather than a re-serialised form on purpose: it needs no
 agreement about field order beyond "as emitted", and a parser can check it without trusting its own
@@ -141,6 +149,41 @@ malformed one. A malformed record is worse: it fails the hash check and hides th
 4. Convert `virtio.*`, `panic`, `tick`.
 5. Injection tests: corrupt one byte, drop one record, add one unknown id. All three must FAIL.
 6. Changelog entry; this document's status line changes to "implemented, passing".
+
+## Result
+
+| | Before | After |
+|---|---|---|
+| Records per boot | 0 | **23**, `seq` 1..23, no gaps |
+| Registered ids firing | 0 of 13 | **13 of 13** |
+| Assertions | 43 | **50** |
+| Host-computed assertions | 7 (16%) | **12 (24%)** |
+| Kernel size | 24,476 | **26,836** of 32,768 (5,932 free) |
+| Serial prose | unchanged | unchanged — the prose path was not touched |
+
+`verify.py` now recomputes every record's checksum on the host, enforces the sequence, rejects unknown
+ids and undeclared or missing fields, and compares four store hashes against the reference
+implementation. `tools/evt_inject.py` breaks four rules one at a time — bad checksum, `seq` gap,
+unknown id, missing field — and all four are caught, each for the intended reason.
+
+### The three bugs this milestone found in itself
+
+1. **The checksum key collided with a field.** Specified as `hash=`; five events already carry a
+   field called `hash`. The kernel's first record printed `virtio.read lba=0 hash=0x206ce5e2
+   hash=0x100b3377`. Now `chk=`. The spec carried the mistake, not the code.
+2. **The id pattern rejected the ids the registry names.** `[a-z0-9]+(\.[a-z0-9]+)+` requires a dot;
+   `tick` and `panic` have none, so eleven of the twenty-three records failed to parse. A
+   specification written and implemented by the same mind is not a check on that mind.
+3. **The call to `check_records` was dead code.** It was placed after an earlier `return` in the
+   modern-milestone branch. `test.bat` said PASS while the record validation never ran — the exact
+   shape of every failure listed in the contract, and the injection harness is what proved it ran
+   afterwards.
+
+A fourth, in the injection harness itself: the "unknown id" case searched for `id=tick` inside a
+record whose id was `page.on`, so it changed nothing, the checksum still matched, and the case passed
+while testing nothing. It now raises if the substitution is a no-op.
+
+All four were caught by a check disagreeing with an expectation, not by reading the code.
 
 ## What this deliberately is not
 

@@ -16,6 +16,8 @@ typedef unsigned short     u16;
 typedef unsigned int       u32;
 typedef unsigned long long u64;
 
+#include "evt.h"          /* M20: machine-readable event records */
+
 #define COM1      0x3F8
 #define EXIT_PORT 0x501
 #define PAGE_DIR  0x100000
@@ -260,6 +262,101 @@ void put_hex(u32 value)
     }
 }
 
+/* --- machine-readable events (M20) --------------------------------------
+ * The prose above is for humans. These records are for the agent: fields it
+ * can assert on, instead of sentences it has to match. The hash covers the
+ * line up to " hash=", so a truncated record cannot still verify.
+ */
+static u32 evt_seq;
+static u32 evt_h;
+
+static void __attribute__((noinline)) evt_char(char c)
+{
+    serial_putc(c);
+    evt_h = (evt_h ^ (u8)c) * 16777619u;
+}
+
+static void evt_puts(const char *s)
+{
+    while (*s) evt_char(*s++);
+}
+
+static void evt_dec(u32 v)
+{
+    char buf[11];
+    int i = 0;
+
+    if (!v) { evt_char('0'); return; }
+    while (v) { buf[i++] = (char)('0' + (v % 10)); v /= 10; }
+    while (i-- > 0) evt_char(buf[i]);
+}
+
+static void evt_hex(u32 v)
+{
+    int shift;
+
+    evt_puts("0x");
+    for (shift = 28; shift >= 0; shift -= 4) {
+        u32 digit = (v >> shift) & 0xF;
+        evt_char(digit < 10 ? (char)('0' + digit) : (char)('a' + digit - 10));
+    }
+}
+
+void evt_begin(const char *id)
+{
+    evt_h = 2166136261u;            /* FNV-1a offset basis */
+    evt_seq++;
+    evt_puts("evt id=");
+    evt_puts(id);
+    evt_puts(" seq=");
+    evt_dec(evt_seq);
+}
+
+void evt_u32(const char *key, unsigned value)
+{
+    evt_char(' ');
+    evt_puts(key);
+    evt_char('=');
+    evt_dec(value);
+}
+
+void evt_hex32(const char *key, unsigned value)
+{
+    evt_char(' ');
+    evt_puts(key);
+    evt_char('=');
+    evt_hex(value);
+}
+
+void evt_str(const char *key, const char *value)
+{
+    evt_char(' ');
+    evt_puts(key);
+    evt_char('=');
+    evt_puts(value);
+}
+
+void evt_end(void)
+{
+    u32 v = evt_h;
+    int i;
+
+    /* chk=, not hash=: several events carry a field called `hash` (the payload
+     * hash), and one line cannot have two fields with the same key. Found the
+     * moment the first virtio record printed two of them.
+     *
+     * Written with serial_putc, not evt_char: the checksum is not part of what
+     * the checksum covers. */
+    serial_putc(' '); serial_putc('c'); serial_putc('h'); serial_putc('k');
+    serial_putc('='); serial_putc('0'); serial_putc('x');
+    for (i = 7; i >= 0; i--) {
+        u32 digit = (v >> (i * 4)) & 0xF;
+        serial_putc(digit < 10 ? (char)('0' + digit) : (char)('a' + digit - 10));
+    }
+    serial_putc('\r');
+    serial_putc('\n');
+}
+
 /* --- IDT --------------------------------------------------------------- */
 static void idt_set(int vector, u32 handler)
 {
@@ -330,6 +427,11 @@ static void report_e820(const boot_info *bi)
 
     put_dec(usable >> 20);
     print(" MB usable\r\n");
+
+    evt_begin("boot.e820");
+    evt_u32("entries", bi->count);
+    evt_u32("usable_kb", usable >> 10);
+    evt_end();
 }
 
 /* --- serial console -----------------------------------------------------
@@ -468,6 +570,9 @@ static void enable_paging(void)
     *(volatile u32 *)0xC0200000 = 0xA05A05A0;
     if (*(volatile u32 *)0x00200000 == 0xA05A05A0) {
         print("paging: remap verified\r\n");
+        evt_begin("page.on");
+        evt_u32("verified", 1);
+        evt_end();
     } else {
         print("paging: REMAP FAILED\r\n");
     }
@@ -483,6 +588,9 @@ void timer_tick(void)
         print("tick ");
         put_dec(ticks);
         print("\r\n");
+        evt_begin("tick");
+        evt_u32("n", ticks);
+        evt_end();
     } else if (ticks == 11) {
         print("AOS TICK TEST COMPLETE\r\n");
         tests_done = 1;
@@ -512,6 +620,14 @@ void exception_panic(u32 vector, u32 error, u32 eip)
     put_hex(error);
     print("\r\n");
     panic_dump_recent();
+
+    /* After the dump, so the record cannot capture itself into the ring. */
+    evt_begin("panic");
+    evt_hex32("vector", vector);
+    evt_hex32("eip", eip);
+    evt_hex32("err", error);
+    evt_end();
+
     print("panic: halted\r\n");
 
     outb(EXIT_PORT, 0x10);
@@ -612,7 +728,7 @@ static u32 find_arena(const boot_info *bi, u32 *size)
 }
 
 /* Allocate, write, free, reallocate: proves reuse and that live data survives. */
-static void heap_selftest(void)
+static int heap_selftest(void)
 {
     u8 *a;
     u8 *b;
@@ -624,7 +740,7 @@ static void heap_selftest(void)
     b = (u8 *)kmalloc(128);
     if (!a || !b) {
         print("heap: alloc/free FAILED\r\n");
-        return;
+        return 0;
     }
 
     for (i = 0; i < 64; i++) a[i] = (u8)i;
@@ -643,6 +759,7 @@ static void heap_selftest(void)
     }
 
     print(ok ? "heap: alloc/free ok\r\n" : "heap: alloc/free FAILED\r\n");
+    return ok;
 }
 
 /* --- entry point ------------------------------------------------------- */
@@ -667,6 +784,10 @@ void kmain(u32 boot_info_addr)
     print("memory: ");
     put_dec(bi->mem_kb);
     print(" KB conventional\r\n");
+
+    evt_begin("boot.mem");
+    evt_u32("kb", bi->mem_kb);
+    evt_end();
     print("protected mode: 32-bit\r\n");
 
     idt_install();
@@ -692,7 +813,12 @@ void kmain(u32 boot_info_addr)
             print(" KB at 0x");
             put_hex(heap_arena);
             print("\r\n");
-            heap_selftest();
+            if (heap_selftest()) {
+                evt_begin("heap.ok");
+                evt_hex32("arena", heap_arena);
+                evt_u32("size_kb", heap_size_bytes >> 10);
+                evt_end();
+            }
         } else {
             print("heap: no usable arena\r\n");
         }

@@ -3,9 +3,25 @@
 All notable changes to ANVIL. Format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-11-26
 
 ### Added
+- **M20: the kernel speaks to an agent, not to a reader.** Every state change is now also emitted as a
+  record — `evt id=store.rec seq=8 index=0 hash=0x23f9753d chk=0xf7ef02f2` — with a monotonic
+  sequence, a per-line FNV-1a checksum and a registered field set. Twenty-three records per boot,
+  thirteen registered ids. `verify.py` recomputes every checksum on the host, rejects unknown ids,
+  `seq` gaps and missing or undeclared fields, and compares four store hashes against the reference
+  implementation. `tools/evt_inject.py` breaks four rules one at a time and all four are caught.
+
+  The prose is untouched: still printed for humans, no longer what the harness asserts on. Kernel
+  26,836 bytes of 32,768. Assertions 43 → 50; the share computed host-side 16% → 24%.
+
+  Three bugs found in the milestone itself, all by a check disagreeing with an expectation rather
+  than by reading the code: the checksum key `hash=` collided with a payload field of the same name
+  (now `chk=`); the id pattern required a dot, so `tick` and `panic` failed to parse; and the call to
+  `check_records` was placed after an earlier `return`, leaving `test.bat` green while the validation
+  never ran. A fourth, in the injection harness, searched for an id that was not in the record it was
+  editing, so one case passed while testing nothing.
 - **The kernel has a screen.** Every character `print` / `put_dec` / `put_hex` sends to COM1
   is also mirrored to the 80x25 VGA text buffer at `0xB8000`, so the VM shows what it is doing
   instead of a blank window. `tools/capture_boot.py` drives QEMU's monitor to screendump the
