@@ -46,8 +46,12 @@ taskkill /IM qemu-system-x86_64.exe /F >nul 2>nul
 rem Start the guest detached, so a hung kernel cannot hold this window open.
 start "" /b "%QEMU%" -drive format=raw,if=floppy,file="%OSROOT%images\anvil.img" -drive file="%OSROOT%images\testdisk.img",format=raw,if=virtio -snapshot -nic none -display none -serial "file:%LOG%" -device isa-debug-exit,iobase=0x501,iosize=0x04 -m 256 -no-reboot
 
-rem Watchdog: give the guest up to 8 seconds, then stop it. A hung kernel can
-rem no longer block the test run, and an early isa-debug-exit ends the wait.
+rem Watchdog: a hung kernel must not block the test run, so there is a cap - but
+rem it is 45 seconds, not 8. The guest exits by itself in about five on an idle
+rem host, so the cap only matters for the hung case. At 8 seconds a loaded host
+rem hit the cap before the kernel printed its panic block, the VM was killed
+rem mid-test, and the caller read a truncated log and reported a kernel failure.
+rem A harness bug that looks exactly like a kernel bug.
 rem
 rem `timeout /t` is not used here: it refuses to run when stdin is redirected
 rem ("Input redirection is not supported"), so a scheduled task or an agent run
@@ -61,7 +65,7 @@ set /a WAITED+=1
 tasklist /fi "imagename eq qemu-system-x86_64.exe" | find /i "qemu-system" >nul 2>nul
 if errorlevel 1 goto notseen
 set SEEN=1
-if %WAITED% lss 10 goto watch
+if %WAITED% lss 45 goto watch
 taskkill /IM qemu-system-x86_64.exe /F >nul 2>nul
 goto settled
 :notseen

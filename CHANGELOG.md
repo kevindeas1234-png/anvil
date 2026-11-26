@@ -3,6 +3,17 @@
 All notable changes to ANVIL. Format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-26
+
+### Fixed
+- **The VM watchdog could truncate the log and the failure was blamed on the kernel.** `run_vm.bat`
+  allowed about ten seconds before killing the guest. On an idle host the guest exits itself in about
+  five, so it never mattered — until the host was loaded, when the kill landed before the kernel
+  printed its panic block. `verify.py` then read a log that stopped after the ticks and reported three
+  missing markers. The test was failing, the kernel was fine. The cap is now 45 seconds; the guest's
+  own `isa-debug-exit` still ends the wait early, so a healthy run costs nothing. Found by a full gate
+  run that failed immediately after one that passed.
+
 ## [0.2.0] - 2026-11-26
 
 ### Added
