@@ -5,7 +5,20 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **A log that never reached the store passed the suite.** Every storage assertion was guarded by
+  `if "store: formatted" in text:`, so a run on a medium with no virtio device skipped all of them and
+  still reported PASS. On real hardware that means half the kernel, unexercised, reported as green.
+  Absence is now a failure unless `--boot-only` states it deliberately, in which case it prints SKIP.
+- **The milestone was inferred from the log, so a run that stopped early was graded against a lower
+  standard.** A boot-only log resolves to milestone 4 and was then judged only against M0–M1.
+  `--milestone N` declares the floor: a log that falls short now fails instead of quietly lowering the
+  bar it is measured against.
+
 ### Added
+- **`images/anvil-usb.img`** — the standard image zero-padded to 64 MiB, for firmware that refuses to
+  treat a 1.44 MB device as bootable. Boot sector unchanged at LBA 0; sha256
+  `caa45f388b43d94e298982d545b1cef59dc66c590eafc5bb459653f0e941c3bd`.
 - **Lessons moved from memory into things that run.** A session's judgement does not survive the
   session, so each lesson is now attached to a mechanism instead of a paragraph:
   - `tools\flake_check.py` boots the VM twice and compares the records, the exit codes and the failing

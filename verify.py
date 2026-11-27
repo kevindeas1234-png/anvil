@@ -340,7 +340,8 @@ def check_records(text: str, expect: dict | None) -> bool:
 
 def check(path: str, require_lba: bool = False,
           device_sectors: int = 0, no_device_hashes: bool = False,
-          expect_panic_vector: int = -1) -> bool:
+          expect_panic_vector: int = -1, boot_only: bool = False,
+          declared: int = 0) -> bool:
     print(f"\n{path}")
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
@@ -376,6 +377,7 @@ def check(path: str, require_lba: bool = False,
         milestone = 0
     else:
         milestone = 1
+    detected = milestone
     print(f"  milestone detected: {milestone}")
 
     ok = True
@@ -600,6 +602,37 @@ def check(path: str, require_lba: bool = False,
 
         ok = check_records(text, store_expectations() if milestone >= 10 else None) and ok
 
+        # Invariant 14: a skipped check prints SKIP and is counted. Every storage
+        # assertion is guarded by "if 'store: formatted' in text", so a log that
+        # never reached the store used to pass in silence - on real hardware that
+        # means half the kernel, unexercised, reported as PASS.
+        if "store: formatted" not in text:
+            if boot_only:
+                print("  [SKIP] storage tests did not run (--boot-only): the record "
+                      "store was never exercised on this medium")
+            else:
+                print("  [FAIL] storage tests did not run: no 'store: formatted' in the log")
+                hint("a run that never reaches the store still passes every assertion "
+                     "above it - pass --boot-only if that is intended")
+                ok = False
+
+        # The milestone is inferred from the log, which means a run that stopped
+        # early is graded against a lower standard. A declared floor makes that
+        # impossible: say what you expected, and a log that fell short is caught.
+        if declared:
+            if detected < declared:
+                if boot_only:
+                    print(f"  [SKIP] log reports milestone {detected}, declared {declared} "
+                          f"(--boot-only)")
+                else:
+                    print(f"  [FAIL] log reports milestone {detected}, expected {declared}")
+                    hint("grading a log against the milestone it happens to contain "
+                         "is how a truncated run passes - declare the floor with "
+                         "--milestone N")
+                    ok = False
+            else:
+                print(f"  [PASS] milestone {detected} meets the declared {declared}")
+
         if not ok and reached:
             print(f"  hint: execution got as far as {reached[-1]!r} and then stopped")
         if "fault test: raising #UD" not in text and "AOS TICK TEST COMPLETE" in text:
@@ -638,6 +671,17 @@ def main(argv: list[str]) -> int:
     here = os.path.dirname(os.path.abspath(__file__))
     require_lba = "--require-lba" in argv
     argv = [item for item in argv if item != "--require-lba"]
+    # A run on real hardware has no virtio device, so the storage half of the
+    # suite cannot execute. That absence must be STATED rather than inferred:
+    # without this flag a log that never reached the store still passes every
+    # assertion above it, and "PASS" then means less than it looks.
+    boot_only = "--boot-only" in argv
+    argv = [item for item in argv if item != "--boot-only"]
+    declared = 0
+    if "--milestone" in argv:
+        index = argv.index("--milestone")
+        declared = int(argv[index + 1])
+        del argv[index:index + 2]
     no_device_hashes = "--no-device-hashes" in argv
     argv = [item for item in argv if item != "--no-device-hashes"]
     expect_panic_vector = -1
@@ -662,7 +706,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     passed = all([check(path, require_lba, device_sectors, no_device_hashes,
-                        expect_panic_vector) for path in paths])
+                        expect_panic_vector, boot_only, declared) for path in paths])
     print("\nRESULT:", "PASS" if passed else "FAIL")
     return 0 if passed else 1
 
