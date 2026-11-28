@@ -385,11 +385,14 @@ def check(path: str, require_lba: bool = False,
     # M14: stage1 announces how it loaded the kernel, on COM1, before anything
     # else. A boot loader that merely claims to have used LBA reads is worth
     # nothing; this is the claim written into the log.
-    marker = None
-    for line in text.splitlines():
-        if line.strip() in ("L", "C"):
-            marker = line.strip()
-            break
+    # Strictly the FIRST line: stage1 writes it before anything else runs.
+    # An earlier version searched the whole log, and the kernel's own A/B/C/D/E
+    # boot sequence contains a bare "C" - so a wrong marker passed by finding an
+    # unrelated line. The failure message always said "first line"; now the code
+    # means it.
+    lines = text.splitlines()
+    first = lines[0].strip() if lines else ""
+    marker = first if first in ("L", "C") else None
     if marker is None:
         print("  [FAIL] no boot-path marker (expected 'L' or 'C' on the first line)")
         ok = False

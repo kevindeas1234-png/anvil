@@ -29,7 +29,11 @@ start:
     sti
 
     mov [boot_drive], dl
+    mov al, 'B'                     ; entered the boot sector at all
+    call mark_screen
     call serial_init
+    mov al, 'S'
+    call mark_screen
 
     ; Where is the kernel? On a floppy or a superfloppy it is at LBA 1. On a
     ; partitioned disk it starts at the first sector of partition 1 - and some
@@ -140,22 +144,30 @@ lba_read:
     jmp disk_error
 .chunk_ok:
     inc bp
+    mov al, '.'                     ; one dot per 16-sector chunk loaded
+    call mark_screen
     cmp bp, CHUNKS
     jb .next_chunk
+    mov al, 'J'                     ; about to hand control to the kernel
+    call mark_screen
     jmp 0x1000:0x0000
 
 ; ---------------------------------------------------------------------------
 disk_error:
+    ; Screen first. The serial line is optional; the screen is the only channel
+    ; guaranteed to exist, and an error nobody can read is not an error message.
     mov si, msg_disk_error
-    call serial_puts
-.next:
+.screen:
     lodsb
     test al, al
-    jz .hang
+    jz .wire
     mov ah, 0x0E
     mov bx, 0x0007
     int 0x10
-    jmp .next
+    jmp .screen
+.wire:
+    mov si, msg_disk_error
+    call serial_puts
 .hang:
     hlt
     jmp .hang
@@ -189,27 +201,47 @@ serial_init:
 
 ; Say it on the screen as well as the wire: on a machine with no COM port the
 ; serial markers are invisible, and an invisible boot loader cannot be tested.
-mark:                              ; AL = character
+mark:                              ; AL = character, screen and wire
+    push ax
+    mov ah, 0x0E                   ; screen FIRST: the BIOS cannot hang
+    mov bx, 0x0007
+    int 0x10
+    pop ax
     push ax
     call serial_putc
     pop ax
+    ret
+
+; Progress markers go to the SCREEN ONLY. The serial log's first line is the
+; boot-path marker and nothing else, so chatter here would break the one
+; assertion that records how the kernel was loaded.
+mark_screen:                       ; AL = character
+    push ax
     mov ah, 0x0E
     mov bx, 0x0007
     int 0x10
+    pop ax
     ret
 
 serial_putc:                       ; AL = character
     push ax
     push dx
+    push cx
     mov ah, al
-    mov dx, 0x3FD
+    mov cx, 0x0FFF                 ; bounded: a board with no UART must not
+    mov dx, 0x3FD                  ; hang here and be reset by a watchdog
 .wait:
     in al, dx
     test al, 0x20                  ; transmit holding register empty?
-    jz .wait
+    jnz .send
+    loop .wait
+    jmp .done                      ; no UART: give up quietly
+.send:
     mov dx, 0x3F8
     mov al, ah
     out dx, al
+.done:
+    pop cx
     pop dx
     pop ax
     ret
