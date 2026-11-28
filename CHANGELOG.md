@@ -6,6 +6,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **The USB image had no partition table, and some firmware refuses to boot that.** The write script
+  runs `diskpart clean`, which zeroes the MBR; a "USB-HDD" with no valid partition entry gets rejected,
+  the machine falls through the boot order and loops - which is exactly the reboot loop seen on the
+  B550. `tools\mkusb.py` now writes a real partition table with partition 1 at LBA 2048 and the kernel
+  inside it, and `stage1` reads the table it was booted with: kernel at the partition start on a disk,
+  LBA 1 on a floppy, one binary for both. Verified booting as USB storage, as an IDE disk, and as the
+  original floppy.
+- **The boot loader was invisible on real hardware.** Its markers went only to COM1, and the machine
+  has no COM port - so a failed boot produced nothing at all. `mark` now writes each marker to the
+  screen with INT 10h as well as to the wire.
 - **The serial wait could hang the kernel on metal.** `serial_putc` spun on the line-status register
   with no bound. On a board with no UART at 0x3F8 an unimplemented port can read back `0x00`, so the
   wait never completes and the kernel hangs at the first character - before anything reaches the

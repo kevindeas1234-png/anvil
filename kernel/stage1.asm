@@ -31,6 +31,21 @@ start:
     mov [boot_drive], dl
     call serial_init
 
+    ; Where is the kernel? On a floppy or a superfloppy it is at LBA 1. On a
+    ; partitioned disk it starts at the first sector of partition 1 - and some
+    ; firmware will not boot the device at all unless that table is valid.
+    ; Read the table we were booted with instead of assuming one layout.
+    mov al, [0x7C00 + 446]          ; partition 1 status
+    test al, al
+    jz .no_partition
+    cmp byte [0x7C00 + 450], 0      ; partition 1 type
+    je .no_partition
+    mov eax, [0x7C00 + 454]         ; partition 1 first LBA
+    test eax, eax
+    jz .no_partition
+    mov [kernel_base], eax
+.no_partition:
+
     ; --- does this drive offer extended (LBA) reads? ---------------------
     mov ah, 0x41
     mov bx, 0x55AA
@@ -41,16 +56,16 @@ start:
     jne .fallback
 
     mov al, 'L'
-    call serial_putc
+    call mark
     mov al, 10
-    call serial_putc
+    call mark
     jmp lba_read
 
 .fallback:
     mov al, 'C'
-    call serial_putc
+    call mark
     mov al, 10
-    call serial_putc
+    call mark
 
 ; ---------------------------------------------------------------------------
 ; CHS path: one sector at a time, as before. Kept for drives whose BIOS has no
@@ -104,13 +119,11 @@ lba_read:
     add ax, 0x1000
     mov [dap_seg], ax
 
-    mov ax, bp
-    shl ax, 4                      ; chunk * 16 sectors
-    inc ax                         ; LBA 1 is the first kernel sector
-    mov [dap_lba], ax
-    mov word [dap_lba + 2], 0
-    mov word [dap_lba + 4], 0
-    mov word [dap_lba + 6], 0
+    movzx eax, bp
+    shl eax, 4                     ; chunk * 16 sectors
+    add eax, [kernel_base]         ; 1 on a floppy, the partition start on a disk
+    mov [dap_lba], eax
+    mov dword [dap_lba + 4], 0
 
     mov word [dap_count], CHUNK_SECTORS
     mov word [dap_off], 0
@@ -174,6 +187,17 @@ serial_init:
     out dx, al                     ; DTR, RTS, OUT2
     ret
 
+; Say it on the screen as well as the wire: on a machine with no COM port the
+; serial markers are invisible, and an invisible boot loader cannot be tested.
+mark:                              ; AL = character
+    push ax
+    call serial_putc
+    pop ax
+    mov ah, 0x0E
+    mov bx, 0x0007
+    int 0x10
+    ret
+
 serial_putc:                       ; AL = character
     push ax
     push dx
@@ -208,6 +232,7 @@ serial_puts:                       ; SI = NUL-terminated string
 boot_drive:     db 0
 read_index:     dw 0
 retries:        db 0
+kernel_base:    dd 1               ; first kernel sector, read from partition 1
 
 dap:
 dap_size:       db 16
