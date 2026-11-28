@@ -176,16 +176,47 @@ static const char *vector_name(u32 vector)
 #define VGA_ROWS  25
 #define VGA_ATTR  0x0F          /* white on black */
 
-static u32 vga_row;
+/* The top three rows are a header, drawn once and never scrolled. The console
+ * owns rows 3..24. Without a reserved region the banner scrolls away in the
+ * first second and the machine loses its face. */
+#define HEADER_ROWS 3
+
+static u32 vga_row = HEADER_ROWS;
 static u32 vga_col;
+
+/* Direct writer for the header: never touches serial, so the log and every hash
+ * stay exactly as they were. */
+static void vga_text_at(u32 row, u32 col, const char *s)
+{
+    u32 i = row * VGA_COLS + col;
+
+    while (*s && i < (row + 1) * VGA_COLS) {
+        VGA_MEM[i++] = (u16)((VGA_ATTR << 8) | (u8)*s++);
+    }
+}
 
 static u32  vga_last_step;
 static void vga_step(u32 step);   /* defined below; vga_putc pins it on newline */
 
+/* What the machine says about itself, before it says anything else.
+ *
+ * It says "booting", not "installing": this kernel loads itself and writes
+ * nothing to any disk, and rule 2 of the node charter is no lies. The word
+ * becomes true the day there is an installer to go with it (M15).
+ */
+static void vga_banner(void)
+{
+    vga_text_at(0, 1, "ANVIL - an AOS system");
+    vga_text_at(1, 1, "booting from removable disk - nothing is written to it");
+    vga_text_at(2, 1, "build 2026-11-29 - every action is recorded");
+}
+
 static void vga_scroll(void)
 {
     u32 i;
-    for (i = 0; i < (VGA_ROWS - 1) * VGA_COLS; i++)
+
+    /* Scroll only the console region: rows above HEADER_ROWS are the header. */
+    for (i = HEADER_ROWS * VGA_COLS; i < (VGA_ROWS - 1) * VGA_COLS; i++)
         VGA_MEM[i] = VGA_MEM[i + VGA_COLS];
     for (i = (VGA_ROWS - 1) * VGA_COLS; i < VGA_ROWS * VGA_COLS; i++)
         VGA_MEM[i] = (u16)((VGA_ATTR << 8) | ' ');
@@ -226,7 +257,7 @@ static void __attribute__((noinline)) vga_putc(char c)
 static void vga_init(void)
 {
     u32 i;
-    vga_row = 0;
+    vga_row = HEADER_ROWS;
     vga_col = 0;
     for (i = 0; i < VGA_ROWS * VGA_COLS; i++)
         VGA_MEM[i] = (u16)((VGA_ATTR << 8) | ' ');
@@ -847,6 +878,7 @@ void kmain(u32 boot_info_addr)
     vga_step(2);                 /* .bss cleared: the linker symbols are sane */
 
     vga_init();
+    vga_banner();
     vga_step(3);
     vga_note("vga");          /* proves the screen works before anything else */
     serial_init();
