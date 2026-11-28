@@ -188,16 +188,30 @@ to keep intact if you adapt the harness or point it at different hardware.
 Published as-is; the licence terms in `LICENSE` apply. [`SECURITY.md`](SECURITY.md) lists the
 exposures in full, and how to report a problem.
 
+## It runs on real hardware
+
+Since 2026-11-28 ANVIL boots on physical machines from a USB stick: its own MBR, partition 1 at
+LBA 2048, the kernel loaded by extended LBA reads, then protected mode, paging, the IDT, the PIC
+remap, the PIT, the heap, the VGA console and the shell — on a B550 board with a real 8259, with no
+emulator in the path.
+
+Two defects were only findable on metal: a spurious IRQ7 from the 8259 delivered to an IDT gate
+that was never installed (QEMU never raises spurious interrupts), and a boot sector whose serial
+wait could hang on a board with no COM port. Neither is visible to an emulator, and neither is a
+bug a green test suite could have caught.
+
+What metal still cannot do is the storage half: with no virtio device the store tests are skipped,
+and `verify.py --boot-only --milestone 4` is the honest way to report such a run.
+
 ## What it deliberately does not do
 
 Stated plainly, because a kernel README that implies more than it does wastes everyone's
 time:
 
-- **No real hardware.** Only QEMU's legacy virtio-pci. There are no drivers for any
-  physical chipset, and no attempt at one. If you want to know what drivers *your* machine
-  would need, compile the list yourself — [`DRIVER-LIST.md`](DRIVER-LIST.md) explains why
-  one machine's driver inventory is a fingerprint rather than a plan, and how to build
-  your own.
+- **No storage driver for real hardware.** It boots on metal, but the only block
+  driver is QEMU's legacy virtio-pci, so the record store and its half of the suite still run
+  only in QEMU. There is no AHCI, NVMe or USB driver. [`DRIVER-LIST.md`](DRIVER-LIST.md)
+  explains why one machine's driver inventory is a fingerprint rather than a plan.
 - **No userspace.** There are no processes, no `fork`, no syscalls, no privilege rings
   beyond ring 0.
 - **One address space, 32-bit.** The identity map is fixed; there is no per-process
