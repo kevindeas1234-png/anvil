@@ -179,6 +179,9 @@ static const char *vector_name(u32 vector)
 static u32 vga_row;
 static u32 vga_col;
 
+static u32  vga_last_step;
+static void vga_step(u32 step);   /* defined below; vga_putc pins it on newline */
+
 static void vga_scroll(void)
 {
     u32 i;
@@ -213,6 +216,11 @@ static void __attribute__((noinline)) vga_putc(char c)
         vga_scroll();
         vga_row--;
     }
+
+    /* Pinned AFTER the scroll: writing it before means the shift erases it,
+     * which is exactly what happened the first time. Row 0, col 78, so the
+     * number survives a full screen of output. */
+    vga_step(vga_last_step);
 }
 
 static void vga_init(void)
@@ -261,6 +269,28 @@ static void __attribute__((noinline)) serial_putc(char c)
 void print(const char *s)
 {
     while (*s) serial_putc(*s++);
+}
+
+/* Step counter, written straight to the VGA buffer at row 0, col 78 - before
+ * vga_init, without scrolling, and without touching the serial port. On a
+ * machine we cannot see into, the last number visible is the whole diagnosis:
+ * the coarse notes say which phase, this says which statement.
+ *
+ *   01 kmain entered        08 e820 done
+ *   02 .bss cleared         09 paging on
+ *   03 vga ready            10 heap
+ *   04 serial ready         11 virtio probed
+ *   05 first print          12 store tested
+ *   06 idt ready            13 interrupts on
+ *   07 pit started          14 shell
+ */
+static void vga_step(u32 step)
+{
+    u32 c = 78;
+
+    vga_last_step = step;
+    VGA_MEM[c]     = (u16)((0x0F << 8) | (u8)('0' + (step / 10) % 10));
+    VGA_MEM[c + 1] = (u16)((0x0F << 8) | (u8)('0' + step % 10));
 }
 
 /* Screen-only marker. Never touches the serial port, so it cannot change what
@@ -809,15 +839,21 @@ void kmain(u32 boot_info_addr)
     const boot_info *bi = (const boot_info *)boot_info_addr;
     u8 *cursor;
 
+    vga_step(1);                 /* kmain entered: the load path and the jump worked */
+
     /* A flat binary carries no zero-filled segment: clear .bss explicitly so
      * ticks, the IDT and tests_done all start from a known state. */
     for (cursor = __bss_start; cursor < __bss_end; cursor++) *cursor = 0;
+    vga_step(2);                 /* .bss cleared: the linker symbols are sane */
 
     vga_init();
+    vga_step(3);
     vga_note("vga");          /* proves the screen works before anything else */
     serial_init();
+    vga_step(4);
     vga_note("serial");       /* if this appears and 'ANVIL' does not, the UART is the problem */
-    print("ANVIL KERNEL ONLINE\r\n");
+    print("ANVIL KERNEL ONLINE\r\n");   /* the first serial write is the risky one */
+    vga_step(5);
     print("anvil: started\r\n");
     print("anvil: serial online\r\n");
 
@@ -831,17 +867,21 @@ void kmain(u32 boot_info_addr)
     print("protected mode: 32-bit\r\n");
 
     idt_install();
+    vga_step(6);
     print("idt: ready\r\n");
 
     pic_remap();
     print("pic: remapped\r\n");
 
     pit_start();
+    vga_step(7);
     print("pit: started\r\n");
 
     report_e820(bi);
+    vga_step(8);
     vga_note("e820");
     enable_paging();
+    vga_step(9);
     vga_note("paging on");
 
     {   /* allocator, carved from real firmware-described memory */
@@ -866,11 +906,15 @@ void kmain(u32 boot_info_addr)
         }
     }
 
+    vga_step(10);                /* heap done */
+    vga_step(11);
     vga_note("virtio");
     virtio_test();               /* read sector 0 and hash it */
+    vga_step(12);
     vga_note("store");
     store_selftest();            /* M10: records on the bare disk, no filesystem */
 
+    vga_step(13);
     __asm__ __volatile__("sti");
 
     while (!tests_done) {
