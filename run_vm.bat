@@ -90,6 +90,21 @@ for %%A in ("%LOG%") do set "SIZE2=%%~zA"
 if not "%SIZE1%"=="%SIZE2%" goto growing
 :stopped
 
+rem Keep EVERY run, not just the last. The source tree is already snapshotted
+rem per run into history\, but the log was overwritten each time - so after a
+rem catastrophic failure there would be no record of what the machine said on
+rem the run that worked. Numbered, timestamped, append-only.
+if not exist "%OSROOT%logs\history" mkdir "%OSROOT%logs\history"
+set /a RUNNO=1
+:countruns
+if exist "%OSROOT%logs\history\run_%RUNNO%_*.log" (
+  set /a RUNNO+=1
+  goto countruns
+)
+for /f "tokens=1-4 delims=/ " %%a in ('echo %DATE% %TIME%') do set "STAMP=%%d-%%b-%%c"
+copy /y "%LOG%" "%OSROOT%logs\history\run_%RUNNO%_%STAMP%.log" >nul 2>nul
+echo [AOS] run archived: logs\history\run_%RUNNO%_%STAMP%.log
+
 echo.
 echo [AOS] VM exited.
 echo ----- serial log -----
