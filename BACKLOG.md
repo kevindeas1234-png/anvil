@@ -41,6 +41,19 @@ asserted by `verify.py` on fields, with unknown ids, `seq` gaps and bad checksum
 **Pass:** a corrupted record, a missing `seq` and an unknown `id` each make the suite FAIL.
 **Spec:** `M20-AGENT-INTERFACE.md`.
 
+### [ ] M27 — the machine can draw on any screen
+VBE mode chosen by the firmware in stage1; the kernel writes into a linear framebuffer with its
+own 8x16 font, falling back to VGA text when there is no VBE.
+**Pass:** banner, step counter and panic render at 1024x768x32; `evt id=video.mode` reports which
+path ran; serial output and every hash unchanged.
+**Spec:** `M27-FRAMEBUFFER.md`.
+
+### [ ] M28 — the machine can hear a keyboard
+PS/2 scancodes from IRQ1 into a ring buffer the shell reads; serial and keyboard merged.
+**Pass:** typing reaches the shell on metal, QEMU `sendkey` reproduces it in the log, and no
+keyboard attached is never an error.
+**Spec:** `M28-KEYBOARD.md`.
+
 ## io_bench
 
 ### [x] Baseline harness
