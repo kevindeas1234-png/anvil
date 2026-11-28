@@ -26,6 +26,7 @@ extern u32  isr_table[32];
 extern u32  irq_table[16];
 extern u32  bios_disk_write(u32 drive, u32 lba, u32 count, u32 buf_phys);
 extern u32  bios_test(void);
+extern u32  bios_disk_reset(u32 drive);
 extern void isr_irq0(void);
 extern void exception_panic(u32 vector, u32 error, u32 eip);
 extern void timer_tick(void);
@@ -1042,10 +1043,12 @@ void kmain(u32 boot_info_addr)
      *
      * The code stays compiled and testable: set M24_ENABLED to 1 and call
      * bios_test() to watch the switch work. */
-    if (0) {
-        print("bios switch: ");
-        print(bios_test() == 0 ? "ok\r\n" : "FAILED\r\n");
-    }
+    /* M24 experiment 1: does the simplest BIOS disk service return at all?
+     * A reset touches no buffer and no sector - it only talks to the controller.
+     * If this returns, the call convention and the real-mode environment are
+     * sound, and the problem is specific to the write. */
+    print("bios reset: ");
+    print(bios_disk_reset(bi->drive) == 0 ? "returned\r\n" : "FAILED\r\n");
 
     idt_install();
     vga_step(6);

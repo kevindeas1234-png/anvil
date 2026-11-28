@@ -44,6 +44,29 @@
 section .text
 
 ; ---------------------------------------------------------------------------
+global bios_disk_reset
+; u32 bios_disk_reset(u32 drive) - if this returns, our call convention and the
+; real-mode environment are sound and the problem is specific to the write; if it
+; hangs too, the environment is what is wrong.
+bios_disk_reset:
+    push    ebp
+    mov     ebp, esp
+    pushad
+    pushfd
+    cli
+    mov     byte [LOW_OP], 2
+    mov     eax, [ebp + 8]
+    mov     [LOW_DRIVE], eax
+    mov     [LOW_ESP], esp
+    mov     dword [LOW_RET], .continue
+    jmp     bios_switch
+.continue:
+    movzx   eax, byte [LOW_STATUS]
+    popfd
+    popad
+    leave
+    ret
+
 global bios_test
 bios_test:
     push    ebp
@@ -212,8 +235,20 @@ real16:
     mov     byte [LOW_AH], 0xFE
 
     cmp     byte [LOW_OP], 0
-    jne     .tele
+    je      .write
+    cmp     byte [LOW_OP], 2
+    je      .reset
+    jmp     .tele
 
+.reset:
+    mov     dl, [LOW_DRIVE]
+    mov     ah, 0x00                ; reset: the simplest disk service there is
+    sti
+    int     0x13
+    cli
+    jmp     .after
+
+.write:
     mov     dl, [LOW_DRIVE]
     mov     si, LOW_DAP
     mov     cx, [LOW_DAP + 2]
