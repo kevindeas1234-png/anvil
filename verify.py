@@ -193,6 +193,7 @@ EVT_FIELDS = {
     "store.replay": ("identical",),
     "panic":        ("vector", "eip", "err", "step"),
     "tick":         ("n",),
+    "irq":          ("n",),   # unexpected hardware IRQ; never seen in QEMU
 }
 
 

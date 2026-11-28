@@ -5,7 +5,7 @@
 [BITS 32]
 
 extern exception_panic
-extern timer_tick
+extern irq_handler
 
 %macro ISR_NOERR 1
 global isr%1
@@ -37,12 +37,37 @@ isr_common:
     add esp, 8
     iretd
 
-global isr_irq0
-isr_irq0:
+; Every IRQ vector gets a gate. Installing only IRQ0 was a bet that nothing
+; else would ever fire - and real hardware collects on that bet: the 8259 raises
+; a spurious IRQ7 during initialisation, delivery hits an empty gate, and the
+; machine takes a #GP before the first tick. QEMU never does it.
+%macro IRQ_STUB 1
+global isr_irq%1
+isr_irq%1:
     pushad
-    call timer_tick
+    push dword (32 + %1)
+    call irq_handler
+    add esp, 4
     popad
     iretd
+%endmacro
+
+IRQ_STUB 0
+IRQ_STUB 1
+IRQ_STUB 2
+IRQ_STUB 3
+IRQ_STUB 4
+IRQ_STUB 5
+IRQ_STUB 6
+IRQ_STUB 7
+IRQ_STUB 8
+IRQ_STUB 9
+IRQ_STUB 10
+IRQ_STUB 11
+IRQ_STUB 12
+IRQ_STUB 13
+IRQ_STUB 14
+IRQ_STUB 15
 
 ISR_NOERR 0
 ISR_NOERR 1
@@ -84,3 +109,10 @@ isr_table:
     dd isr8,  isr9,  isr10, isr11, isr12, isr13, isr14, isr15
     dd isr16, isr17, isr18, isr19, isr20, isr21, isr22, isr23
     dd isr24, isr25, isr26, isr27, isr28, isr29, isr30, isr31
+
+global irq_table
+irq_table:
+    dd isr_irq0,  isr_irq1,  isr_irq2,  isr_irq3
+    dd isr_irq4,  isr_irq5,  isr_irq6,  isr_irq7
+    dd isr_irq8,  isr_irq9,  isr_irq10, isr_irq11
+    dd isr_irq12, isr_irq13, isr_irq14, isr_irq15

@@ -6,6 +6,15 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **The kernel took a general protection fault on real hardware at `sti`.** Only vector 0x20 had an
+  IDT gate - a bet that nothing but the timer would ever fire. Real hardware collects on that bet: the
+  8259 raises a spurious IRQ7 during initialisation, delivery hits an empty gate, and the machine
+  faults before the first tick. The error code gave it away: `0x13b` decodes as index 39 = vector
+  0x27, i.e. IRQ7. All sixteen IRQ vectors now have stubs of their own, and any IRQ other than the
+  timer is **recorded as `evt id=irq n=N`** and EOI'd, so the next surprise is named instead of
+  fatal. QEMU never raises spurious interrupts, which is why eleven passing gates never saw it.
+- **The panic block reports the step it died on**, carried in the record as `step=`. On metal that one
+  number separated "died at sti" from "died in the wait loop", and saved a session of guessing.
 - **The USB image had no partition table, and some firmware refuses to boot that.** The write script
   runs `diskpart clean`, which zeroes the MBR; a "USB-HDD" with no valid partition entry gets rejected,
   the machine falls through the boot order and loops - which is exactly the reboot loop seen on the

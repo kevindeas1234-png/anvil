@@ -23,6 +23,7 @@ typedef unsigned long long u64;
 #define PAGE_DIR  0x100000
 
 extern u32  isr_table[32];
+extern u32  irq_table[16];
 extern void isr_irq0(void);
 extern void exception_panic(u32 vector, u32 error, u32 eip);
 extern void timer_tick(void);
@@ -476,7 +477,9 @@ static void idt_install(void)
     int i;
 
     for (i = 0; i < 32; i++) idt_set(i, isr_table[i]);
-    idt_set(0x20, (u32)isr_irq0);
+    /* All sixteen IRQ vectors, not just the timer. An uninstalled gate turns a
+     * spurious IRQ7 into a #GP before the kernel has printed a single tick. */
+    for (i = 0; i < 16; i++) idt_set(32 + i, irq_table[i]);
 
     idtr.limit = (u16)(sizeof(idt) - 1);
     idtr.base = (u32)idt;
@@ -678,6 +681,30 @@ static void enable_paging(void)
 }
 
 /* --- interrupt callbacks (called from isr.asm) ------------------------- */
+/* Every hardware IRQ lands here through its own stub (vectors 32..47).
+ *
+ * Only the timer is expected. Anything else is recorded rather than ignored:
+ * on real hardware a spurious IRQ7 arrives during PIC initialisation, and
+ * seeing `irq n=7` in the log is how we know the 8259 did what 8259s do.
+ * Confirmed absent in QEMU, which is exactly why it took a metal boot to find.
+ */
+void irq_handler(u32 vector)
+{
+    u32 irq = vector - 32;
+
+    if (irq == 0) {
+        timer_tick();              /* takes its own EOI */
+        return;
+    }
+
+    evt_begin("irq");
+    evt_u32("n", irq);
+    evt_end();
+
+    if (irq >= 8) outb(0xA0, 0x20); /* slave first, then master */
+    outb(0x20, 0x20);
+}
+
 void timer_tick(void)
 {
     outb(0x20, 0x20);              /* EOI */
