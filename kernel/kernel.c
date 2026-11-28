@@ -224,17 +224,55 @@ static void vga_init(void)
         VGA_MEM[i] = (u16)((VGA_ATTR << 8) | ' ');
 }
 
+/* On a board with no UART at 0x3F8 the line-status register returns whatever
+ * the chipset gives for an unimplemented port. If that is 0x00, the transmit
+ * wait below never completes: the kernel spins at the first character, before
+ * anything reaches the screen, and a firmware watchdog turns the hang into a
+ * boot loop. QEMU always provides a UART, so this can only bite on metal.
+ *
+ * Three changes: the wait is bounded, a dead port is remembered, and the VGA
+ * write happens FIRST so the screen shows how far the kernel got even when the
+ * serial line is the thing that is broken.
+ */
+#define SERIAL_SPIN_LIMIT 200000
+
+/* Zero-initialised on purpose: kmain clears .bss before anything else runs, so a
+ * flag that defaults to 1 in .data would be the one thing that survived. */
+static int serial_dead;
+
 static void __attribute__((noinline)) serial_putc(char c)
 {
-    while ((inb(COM1 + 5) & 0x20) == 0) { }
-    outb(COM1, (u8)c);
     vga_putc(c);
     panic_capture(c);
+
+    if (!serial_dead) {
+        u32 spins = 0;
+
+        while ((inb(COM1 + 5) & 0x20) == 0) {
+            if (++spins > SERIAL_SPIN_LIMIT) {
+                serial_dead = 1;    /* give up once, then stop trying */
+                return;
+            }
+        }
+        outb(COM1, (u8)c);
+    }
 }
 
 void print(const char *s)
 {
     while (*s) serial_putc(*s++);
+}
+
+/* Screen-only marker. Never touches the serial port, so it cannot change what
+ * verify.py checks - and on metal it is the only evidence left when a hang or a
+ * reset happens before the panic path can report anything. */
+static void vga_note(const char *s)
+{
+    vga_putc('[');
+    while (*s) vga_putc(*s++);
+    vga_putc(']');
+    vga_putc('\r');
+    vga_putc('\n');
 }
 
 void put_dec(u32 value)
@@ -776,7 +814,9 @@ void kmain(u32 boot_info_addr)
     for (cursor = __bss_start; cursor < __bss_end; cursor++) *cursor = 0;
 
     vga_init();
+    vga_note("vga");          /* proves the screen works before anything else */
     serial_init();
+    vga_note("serial");       /* if this appears and 'ANVIL' does not, the UART is the problem */
     print("ANVIL KERNEL ONLINE\r\n");
     print("anvil: started\r\n");
     print("anvil: serial online\r\n");
@@ -800,7 +840,9 @@ void kmain(u32 boot_info_addr)
     print("pit: started\r\n");
 
     report_e820(bi);
+    vga_note("e820");
     enable_paging();
+    vga_note("paging on");
 
     {   /* allocator, carved from real firmware-described memory */
         u32 arena_size = 0;
@@ -824,7 +866,9 @@ void kmain(u32 boot_info_addr)
         }
     }
 
+    vga_note("virtio");
     virtio_test();               /* read sector 0 and hash it */
+    vga_note("store");
     store_selftest();            /* M10: records on the bare disk, no filesystem */
 
     __asm__ __volatile__("sti");

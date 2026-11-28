@@ -74,8 +74,20 @@ rem the process may not have appeared, and treating that as "it exited" lets the
 rem batch return while the guest is still writing - so the caller reads a
 rem half-written serial log. Wait for it to appear before believing it has gone.
 if %SEEN%==0 if %WAITED% lss 3 goto watch
+rem The process being gone is NOT the same as the log being complete: the serial
+rem file can still be flushing. Verifying a half-written log reports kernel
+rem failures that never happened - found 2026-11-29, about one run in three.
+rem So: wait until the log size stops changing, sampled a second apart.
 :settled
+set /a SETTLE=0
+:growing
 ping -n 2 127.0.0.1 >nul 2>nul
+set "SIZE1="
+for %%A in ("%LOG%") do set "SIZE1=%%~zA"
+ping -n 2 127.0.0.1 >nul 2>nul
+set "SIZE2="
+for %%A in ("%LOG%") do set "SIZE2=%%~zA"
+if not "%SIZE1%"=="%SIZE2%" goto growing
 :stopped
 
 echo.

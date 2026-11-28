@@ -6,6 +6,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **The serial wait could hang the kernel on metal.** `serial_putc` spun on the line-status register
+  with no bound. On a board with no UART at 0x3F8 an unimplemented port can read back `0x00`, so the
+  wait never completes and the kernel hangs at the first character - before anything reaches the
+  screen - which firmware watchdogs turn into a boot loop. The wait is now bounded (`SERIAL_SPIN_LIMIT`),
+  a dead port is remembered, and the VGA write happens first so the screen shows progress even when
+  the serial line is the broken part. QEMU always provides a UART, so no test here could have found it.
+- **Screen markers at each init step.** `[vga]`, `[serial]`, `[e820]`, `[paging on]`, `[virtio]`,
+  `[store]` are written to the display and never to serial, so a hang on metal is localised instead of
+  guessed at. Serial output and every hash are unchanged.
+- **`run_vm.bat` returned before the log was complete.** About one run in three, `verify.py` read a
+  half-written serial file and reported three missing markers: a harness failure wearing a kernel
+  failure's clothes. The process vanishing is not the log being finished, so the script now waits
+  until the file size stops changing, sampled a second apart. Five consecutive gates since.
 - **A log that never reached the store passed the suite.** Every storage assertion was guarded by
   `if "store: formatted" in text:`, so a run on a medium with no virtio device skipped all of them and
   still reported PASS. On real hardware that means half the kernel, unexercised, reported as green.
