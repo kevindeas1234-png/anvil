@@ -194,6 +194,7 @@ EVT_FIELDS = {
     "panic":        ("vector", "eip", "err", "step"),
     "tick":         ("n",),
     "irq":          ("n",),   # unexpected hardware IRQ; never seen in QEMU
+    "log.flush":    ("ok", "bytes", "fnv", "why"),  # M24: text handed to the BIOS
 }
 
 

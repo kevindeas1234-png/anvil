@@ -45,6 +45,11 @@ echo [AOS] 3/6 interrupt stubs
 echo [AOS] isr exit=%errorlevel%
 if errorlevel 1 goto fail
 
+echo [AOS] 3b/6 BIOS caller (real-mode trampoline)
+"%NASM_EXE%" -f elf32 "%OSROOT%kernel\bios.asm" -o "%OSROOT%build\bios.o"
+echo [AOS] bios exit=%errorlevel%
+if errorlevel 1 goto fail
+
 echo [AOS] 4/6 compiling kernel.c
 rem -mgeneral-regs-only keeps clang to integer registers: without it, it
 rem vectorises loops into SSE (xorps/movaps), which faults before the IDT
@@ -63,7 +68,7 @@ echo [AOS] compile virtio exit=%errorlevel%
 if errorlevel 1 goto fail
 
 echo [AOS] 5/6 linking ELF at 0x10000
-"%ZIG%" cc -target x86-freestanding -nostdlib -Wl,-T,"%OSROOT%kernel\linker.ld" -o "%OSROOT%build\kernel.elf" "%OSROOT%build\entry.o" "%OSROOT%build\isr.o" "%OSROOT%build\kernel.o" "%OSROOT%build\virtio.o" "%OSROOT%build\store.o"
+"%ZIG%" cc -target x86-freestanding -nostdlib -Wl,-T,"%OSROOT%kernel\linker.ld" -o "%OSROOT%build\kernel.elf" "%OSROOT%build\entry.o" "%OSROOT%build\isr.o" "%OSROOT%build\bios.o" "%OSROOT%build\kernel.o" "%OSROOT%build\virtio.o" "%OSROOT%build\store.o"
 echo [AOS] link exit=%errorlevel%
 if errorlevel 1 goto fail
 

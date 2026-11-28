@@ -29,6 +29,7 @@ start:
     sti
 
     mov [boot_drive], dl
+    mov [0x0500], dl                ; hand the drive number to entry.asm
     mov al, 'B'                     ; entered the boot sector at all
     call mark_screen
     call serial_init

@@ -115,6 +115,8 @@ _start:
     mov dword [es:di + 4], E820_BUF
     movzx eax, word [es:0x0413]    ; conventional KB from the BIOS data area
     mov [es:di + 8], eax
+    movzx eax, byte [es:0x0500]    ; BIOS drive number, left there by stage1
+    mov [es:di + 12], eax
 
     mov al, 'C'
     call beacon16

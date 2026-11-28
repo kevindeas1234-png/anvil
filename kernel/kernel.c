@@ -24,6 +24,8 @@ typedef unsigned long long u64;
 
 extern u32  isr_table[32];
 extern u32  irq_table[16];
+extern u32  bios_disk_write(u32 drive, u32 lba, u32 count, u32 buf_phys);
+extern u32  bios_test(void);
 extern void isr_irq0(void);
 extern void exception_panic(u32 vector, u32 error, u32 eip);
 extern void timer_tick(void);
@@ -35,6 +37,7 @@ typedef struct {
     u32 count;      /* number of E820 entries            */
     u32 addr;       /* physical address of the entries   */
     u32 mem_kb;     /* conventional memory from int 12h  */
+    u32 drive;      /* BIOS drive number we were booted from (M24) */
 } boot_info;
 
 typedef struct {
@@ -45,6 +48,35 @@ typedef struct {
 } e820_entry;
 
 static u8 idt[256 * 8] __attribute__((aligned(16)));
+
+/* --- M24: the machine carries its own testimony -------------------------
+ * The console text is kept in RAM as it is produced, and on the way out it is
+ * handed to the BIOS, which writes it to a reserved area of the medium we were
+ * booted from. No USB stack, no AHCI driver - the firmware already has both.
+ *
+ * Layout on the medium (sectors):
+ *   32768          header: magic, length, FNV-1a of the text
+ *   32769..32776   the text, one sector per BIOS call
+ *
+ * One sector per call on purpose: some firmware will not transfer a buffer
+ * that crosses a 64 KB boundary, and a single sector cannot.
+ */
+#define LOG_LBA      32768
+#define LOG_SECTORS  8
+#define LOG_MAGIC    0x31474F4Cu        /* "LOG1" little-endian */
+
+/* Drive 0x00 is the floppy, so zero cannot mean "unknown". Track validity
+ * separately, or a legitimate floppy boot is silently skipped. */
+static u32  panic_boot_drive;
+static u32  panic_have_drive;
+static u8   log_sector[512] __attribute__((aligned(512)));
+static char log_text[LOG_SECTORS * 512] __attribute__((aligned(512)));
+static u32  log_len;
+
+static void log_char(char c)
+{
+    if (log_len < sizeof(log_text) - 1) log_text[log_len++] = c;
+}
 
 struct idtr {
     u16 limit;
@@ -284,6 +316,7 @@ static void __attribute__((noinline)) serial_putc(char c)
 {
     vga_putc(c);
     panic_capture(c);
+    log_char(c);
 
     if (!serial_dead) {
         u32 spins = 0;
@@ -758,6 +791,52 @@ void exception_panic(u32 vector, u32 error, u32 eip)
     evt_u32("step", vga_last_step);
     evt_end();
 
+
+    /* The console text goes to the medium, through the BIOS. This is the point
+     * of M24: the machine leaves a record, so nobody has to photograph a
+     * screen. If the firmware refuses, the attempt is recorded as a failure
+     * rather than passed over in silence. */
+    {
+        u32 drive = panic_boot_drive;
+        u32 saved = 0;
+        u32 why = 0;
+        u32 hash = 2166136261u;
+        u32 i;
+
+        print("log: flushing drive=0x");
+        put_hex(drive);
+        print(" known=");
+        put_dec(panic_have_drive);
+        print("\r\n");
+
+        for (i = 0; i < log_len; i++) hash = (hash ^ (u8)log_text[i]) * 16777619u;
+
+        if (panic_have_drive) {
+            *(u32 *)(log_sector + 0) = LOG_MAGIC;
+            *(u32 *)(log_sector + 4) = log_len;
+            *(u32 *)(log_sector + 8) = hash;
+            why = bios_disk_write(drive, LOG_LBA, 1, (u32)log_sector);
+            if (why == 0) {
+                saved = 1;
+                for (i = 0; i < LOG_SECTORS; i++) {
+                    u32 r = bios_disk_write(drive, LOG_LBA + 1 + i, 1,
+                                            (u32)(log_text + i * 512));
+                    if (r != 0) { saved = 0; why = r; break; }
+                }
+            }
+        }
+
+        evt_begin("log.flush");
+        evt_u32("ok", saved);
+        evt_u32("bytes", log_len);
+        evt_hex32("fnv", hash);
+        evt_hex32("why", why);      /* 0, or 0xNN01 where NN is the BIOS AH */
+        evt_end();
+
+        if (saved) print("log: saved to the medium\r\n");
+        else       print("log: NOT saved (no usable BIOS drive)\r\n");
+    }
+
     print("panic: halted\r\n");
 
     outb(EXIT_PORT, 0x10);
@@ -908,6 +987,20 @@ void kmain(u32 boot_info_addr)
     for (cursor = __bss_start; cursor < __bss_end; cursor++) *cursor = 0;
     vga_step(2);                 /* .bss cleared: the linker symbols are sane */
 
+    /* AFTER the clear, never before: both of these live in .bss, and setting
+     * them first meant the clearing loop wiped them two statements later. The
+     * kernel printed the right drive number and then forgot it. */
+    panic_boot_drive = bi->drive;   /* which disk the BIOS booted us from */
+    /* Only a hard disk carries the log area. A floppy is 1.44 MB and LBA 32768
+     * does not exist on it; asking would just hang the BIOS. */
+    /* M24 is NOT finished. The mode switch works - breadcrumbs 1..a on QEMU's
+     * debug port, no crash, and the BIOS teletype call returns - but the disk
+     * write hangs inside the firmware on the first sector. The flush is
+     * therefore disabled rather than shipped: a kernel that hangs on its way out
+     * is worse than one that says plainly it cannot save. */
+#define M24_ENABLED 0
+    panic_have_drive = (M24_ENABLED && bi->drive >= 0x80) ? 1 : 0;
+
     vga_init();
     vga_banner();
     vga_step(3);
@@ -928,6 +1021,31 @@ void kmain(u32 boot_info_addr)
     evt_u32("kb", bi->mem_kb);
     evt_end();
     print("protected mode: 32-bit\r\n");
+    print("boot drive: 0x");
+    put_hex(bi->drive);      /* where the BIOS booted us from; 0x00 floppy, 0x80 disk */
+    print("\r\n");
+
+    /* M24 (the machine writes its own log) is IN PROGRESS, not shipped.
+     *
+     * What works: the switch to real mode and back - breadcrumbs 1..a on QEMU's
+     * debug port, no crash, and the BIOS teletype call returns with the
+     * character printed. Getting there cost four real bugs: a 16-bit stack that
+     * wrapped because SP is the low half of a 32-bit ESP; a real-mode entry
+     * pointer aimed at the protected-mode entry, which looped forever; a `ret`
+     * that popped saved flags as a return address; and null data selectors on
+     * re-entry, so the first stack touch faulted.
+     *
+     * What does not: the disk write hangs inside the firmware, and a BIOS call
+     * this early clobbers the E820 buffer the heap is carved from - the gate
+     * caught that as 'heap: alloc/free ok' failing. Both need doing before this
+     * ships, so the call is disabled rather than left in the boot path.
+     *
+     * The code stays compiled and testable: set M24_ENABLED to 1 and call
+     * bios_test() to watch the switch work. */
+    if (0) {
+        print("bios switch: ");
+        print(bios_test() == 0 ? "ok\r\n" : "FAILED\r\n");
+    }
 
     idt_install();
     vga_step(6);
