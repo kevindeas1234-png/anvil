@@ -257,6 +257,23 @@ int virtio_test(void)
         for (slot = 0; slot < 32; slot++) {
             for (func = 0; func < 8; func++) {
                 vendor_device = pci_read32(bus, slot, func, 0x00);
+
+                /* Say what is actually here. The driver set was written from
+                 * one machine and one emulator, so every device this kernel
+                 * recognises is a guess until a machine reports otherwise. One
+                 * record per device turns each boot into a sample instead of an
+                 * anecdote - and lets an installer discover it has no driver for
+                 * a class *before* it writes anything. */
+                if ((vendor_device & 0xFFFF) != 0xFFFF) {
+                    u32 class_cfg = pci_read32(bus, slot, func, 0x08);
+                    evt_begin("pci.dev");
+                    evt_hex32("vendor", vendor_device & 0xFFFF);
+                    evt_hex32("device", vendor_device >> 16);
+                    evt_hex32("class", (class_cfg >> 24) & 0xFF);
+                    evt_u32("slot", slot);
+                    evt_end();
+                }
+
                 if ((vendor_device & 0xFFFF) == 0x1AF4) {
                     u32 device = vendor_device >> 16;
                     if (device == 0x1001 || device == 0x1042) {
