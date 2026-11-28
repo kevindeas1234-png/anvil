@@ -191,7 +191,7 @@ EVT_FIELDS = {
     "store.region": ("hash",),
     "store.super":  ("hash",),
     "store.replay": ("identical",),
-    "panic":        ("vector", "eip", "err"),
+    "panic":        ("vector", "eip", "err", "step"),
     "tick":         ("n",),
 }
 

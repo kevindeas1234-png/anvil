@@ -713,6 +713,9 @@ void exception_panic(u32 vector, u32 error, u32 eip)
     print(" ");
     print((char *)vector_name(vector));
     print("\r\n");
+    print("panic: step=");
+    put_dec(vga_last_step);   /* how far the kernel had got, as a number */
+    print("\r\n");
     print("panic: eip=0x");
     put_hex(eip);
     print(" err=0x");
@@ -725,6 +728,7 @@ void exception_panic(u32 vector, u32 error, u32 eip)
     evt_hex32("vector", vector);
     evt_hex32("eip", eip);
     evt_hex32("err", error);
+    evt_u32("step", vga_last_step);
     evt_end();
 
     print("panic: halted\r\n");
@@ -948,10 +952,13 @@ void kmain(u32 boot_info_addr)
 
     vga_step(13);
     __asm__ __volatile__("sti");
+    vga_step(14);                /* interrupts are on and we survived enabling them */
 
+    vga_step(15);                /* reached the wait loop */
     while (!tests_done) {
         cpu_hlt();
     }
+    vga_step(16);                /* ticks finished */
 
     shell();
 
