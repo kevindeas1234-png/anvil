@@ -54,6 +54,13 @@ PS/2 scancodes from IRQ1 into a ring buffer the shell reads; serial and keyboard
 keyboard attached is never an error.
 **Spec:** `M28-KEYBOARD.md`.
 
+### [ ] M29 - the machine keeps a journal
+Append-only, hash-chained records in the store, plus a bounded resume note. Blocked on M24: until the
+kernel can write to its own medium, any journal would live and die with the emulator.
+**Pass:** chain verifies across a reboot; one tampered byte and one truncated tail are both detected;
+a later session can resume from the medium alone.
+**Spec:** `M29-JOURNAL.md`.
+
 ## io_bench
 
 ### [x] Baseline harness
