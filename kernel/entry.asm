@@ -22,6 +22,22 @@ E820_MAX    equ 32
 
 _start:
     cli
+    ; Record the BIOS drive number in boot_info's own drive field, right now.
+    ; DL arrives from stage1, and every BIOS call from here on - starting with
+    ; the E820 loop - may clobber low memory. Two earlier attempts stored it at
+    ; 0x0500 (clobbered by the memory call) and 0x700F (inside this very field,
+    ; which overwrote half of it).
+    push ds
+    push ax
+    xor ax, ax
+    mov ds, ax
+    xor ax, ax
+    mov al, dl
+    mov [0x700C], ax                ; drive: low word
+    mov word [0x700E], 0            ; and high word
+    pop ax
+    pop ds
+
     mov ax, 0x1000
     mov ds, ax
     mov es, ax
@@ -115,8 +131,7 @@ _start:
     mov dword [es:di + 4], E820_BUF
     movzx eax, word [es:0x0413]    ; conventional KB from the BIOS data area
     mov [es:di + 8], eax
-    movzx eax, byte [es:0x0500]    ; BIOS drive number, left there by stage1
-    mov [es:di + 12], eax
+    ; +12 was written at entry, before the memory map was collected.
 
     mov al, 'C'
     call beacon16
