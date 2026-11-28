@@ -13,7 +13,9 @@
 ; boundary.
 [BITS 32]
 
-%define LOW_BASE    0x8000              ; free: above the boot sector, below the kernel
+%define LOW_BASE    0x3000              ; NOT 0x8000: that is entry.asm's E820 buffer,
+                                        ; and putting the DAP there corrupted the memory
+                                        ; map behind the kernel's own back.
 %define LOW_DAP     (LOW_BASE + 0x00)   ; 16-byte disk address packet
 %define LOW_GDTR    (LOW_BASE + 0x10)   ; saved 32-bit GDTR
 %define LOW_IDTR    (LOW_BASE + 0x20)   ; saved IDTR
